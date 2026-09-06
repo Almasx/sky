@@ -1,0 +1,335 @@
+import SwiftUI
+
+/// View mode, implemented as a hero overlay.
+///
+/// The gradient card itself animates from its grid cell to the detail layout —
+/// only the card moves, the canvas and chrome simply fade. The card is a live,
+/// grabbable object the whole time: drag it anywhere to pull it out of place,
+/// let go to snap back, or flick/pull far enough to send it home to its cell.
+///
+/// Dragging the card horizontally slides it into edit mode: the card pins
+/// against the leading edge and a tag pops out of each gradient stop, showing
+/// its swatch and hex. Drag back (or flick right) to return to view mode.
+struct GradientDetailOverlay: View {
+    let item: SkyGradient
+    let sourceFrame: CGRect
+    /// The gallery "+" button's frame — a twin of it renders above the card
+    /// so the card slides beneath the glass on its way home.
+    var plusFrame: CGRect = .zero
+    var autoCloseAfter: Double? = nil
+    let onClosed: () -> Void
+
+    @State private var isExpanded = false
+    @State private var dragOffset: CGSize = .zero
+    /// 0 = view mode, 1 = edit mode; scrubbed live by horizontal drags.
+    @State private var editProgress: CGFloat = 0
+    /// The committed mode — flips only when a slide settles, not mid-scrub.
+    @State private var isEditing = false
+    /// Which way the current drag committed on its first movement.
+    @State private var dragAxis: Axis?
+    @State private var editDragBase: CGFloat = 0
+    /// Stop edits diverge from `item` once the user sculpts a stop.
+    @State private var editedStops: [SkyStop]?
+    /// Whole-scene zoom while a stop tag is grabbed.
+    @State private var grab = StopGrab()
+    /// The stop whose color is being edited: tapping a tag slides the card
+    /// back to full width and raises the Choose-color sheet.
+    @State private var colorEdit: ColorEditTarget?
+    /// The docked tag, outliving `colorEdit` through the slide back into edit
+    /// mode — otherwise the tag re-blooms mid-dismissal and pops in size.
+    @State private var dockedStop: Int?
+
+    private var stops: [SkyStop] { editedStops ?? item.stops }
+
+    var body: some View {
+        ZStack {
+            Color.canvas
+                .opacity(backgroundOpacity)
+                .ignoresSafeArea()
+
+            // Hero card layer, in screen coordinates.
+            GeometryReader { proxy in
+                let rect = heroRect(in: proxy.size)
+                GradientCard(
+                    item: SkyGradient(id: item.id, title: item.title, stops: stops),
+                    cornerRadius: isExpanded ? 55 : 24,
+                    labelOpacity: isExpanded ? 0 : 1
+                )
+                .frame(width: rect.width, height: rect.height)
+                .overlay {
+                    StopTagColumn(
+                        stops: Binding(get: { stops }, set: { editedStops = $0 }),
+                        cardSize: rect.size,
+                        progress: editProgress,
+                        grab: $grab,
+                        colorEditIndex: dockedStop,
+                        onTap: openColorEdit
+                    )
+                }
+                // Grabbing a stop zooms the whole scene — card and tag
+                // together — around the grabbed stop.
+                .scaleEffect(grab.isZoomed ? EditMode.grabZoom : 1, anchor: grab.anchor)
+                // The drag shrink and slides are pure render-server
+                // transforms — the card's layout size never changes during a
+                // drag, so its contents render once and get reused.
+                .scaleEffect(dragScale)
+                .offset(cardTranslation(in: proxy.size))
+                .position(x: rect.midX, y: rect.midY)
+                .gesture(cardDrag(in: proxy.size))
+            }
+            .ignoresSafeArea()
+
+            // Pixel-identical twin of the gallery's "+" button, drawn above
+            // the card layer. The real button hides while the detail is open;
+            // the twin fades in step with the fog, so the closing card slides
+            // beneath the glass and lands with nothing left to snap.
+            if plusFrame != .zero {
+                GeometryReader { _ in
+                    GlassIconButton(systemName: "plus")
+                        .position(x: plusFrame.midX, y: plusFrame.midY)
+                }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .opacity(1 - backgroundOpacity)
+            }
+
+            header
+                .opacity(chromeOpacity)
+                // The chrome joins the fade-away while a stop is grabbed.
+                .opacity(grab.isZoomed ? 0 : 1)
+        }
+        // A soft tap as the card commits either way: into edit mode or back.
+        .sensoryFeedback(.impact(flexibility: .soft), trigger: isEditing)
+        .sensoryFeedback(.impact(flexibility: .soft), trigger: colorEdit?.id)
+        // The Choose-color sheet, editing the tapped stop live. Native sheet:
+        // detent, grabber, glass and swipe-to-dismiss come from the system.
+        .sheet(item: $colorEdit, onDismiss: closeColorEdit) { target in
+            // ✕ starts the card slide NOW, in step with the sheet's exit —
+            // onDismiss (which also covers swipe) would only fire after it.
+            ChooseColorSheet(hex: stopHexBinding(target.id)) {
+                closeColorEdit()
+                colorEdit = nil
+            }
+                .presentationDetents([.height(ChooseColorSheet.height)])
+                .presentationBackgroundInteraction(.enabled)
+                .presentationDragIndicator(.visible)
+        }
+        .onAppear {
+            withAnimation(.heroOpen) {
+                isExpanded = true
+            }
+        }
+        .task {
+            // Scripted dismissal for automated recordings.
+            guard let delay = autoCloseAfter else { return }
+            try? await Task.sleep(for: .seconds(delay))
+            close()
+        }
+        #if DEBUG
+        // Launch with SKY_AUTOPLAY_EDIT=1 (with SKY_AUTOPLAY_ITEM) to slide
+        // into edit mode for automated screenshots/recordings.
+        .task {
+            guard ProcessInfo.processInfo.environment["SKY_AUTOPLAY_EDIT"] != nil else { return }
+            try? await Task.sleep(for: .seconds(1))
+            isEditing = true
+            withAnimation(.editSlide) { editProgress = 1 }
+        }
+        #endif
+    }
+
+    // MARK: - Chrome
+
+    private var header: some View {
+        VStack {
+            ZStack {
+                Text(item.title)
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .foregroundStyle(.secondary)
+
+                HStack {
+                    GlassIconButton(systemName: "chevron.left") { close() }
+                    Spacer()
+                }
+            }
+            .padding(16)
+
+            Spacer()
+        }
+    }
+
+    // MARK: - Hero geometry
+
+    /// The card's laid-out frame: its grid cell when collapsed, the detail
+    /// layout when open. The drag pull, shrink, and edit slide sit on top as
+    /// transforms (`dragScale` / `cardTranslation`), never in the layout.
+    private func heroRect(in size: CGSize) -> CGRect {
+        guard isExpanded else { return sourceFrame }
+
+        // Detail layout from the design: full width minus 16pt margins,
+        // 370:548.66 aspect, centered on screen.
+        let width = size.width - 32
+        let height = width * 548.66 / 370.0
+        return CGRect(
+            x: (size.width - width) / 2,
+            y: (size.height - height) / 2,
+            width: width,
+            height: height
+        )
+    }
+
+    /// Gentle shrink while the card is pulled out of place.
+    private var dragScale: CGFloat {
+        max(0.7, 1 - dragDistance / 1000)
+    }
+
+    /// The drag pull plus the edit-mode slide off the leading edge.
+    private func cardTranslation(in size: CGSize) -> CGSize {
+        CGSize(
+            width: dragOffset.width - size.width * EditMode.hiddenFraction * editProgress,
+            height: dragOffset.height - colorEditShift(in: size)
+        )
+    }
+
+    /// While the color sheet is up, the card rides up just enough that the
+    /// edited stop clears it — the card's aspect ratio never changes. Scaled
+    /// by the slide progress, so it travels in lockstep with the slide.
+    private func colorEditShift(in size: CGSize) -> CGFloat {
+        guard let index = dockedStop, stops.indices.contains(index) else { return 0 }
+        let rect = heroRect(in: size)
+        let stopY = rect.minY + stops[index].location * rect.height
+        let sheetTop = size.height - ChooseColorSheet.height
+        return max(0, stopY - (sheetTop - 44)) * (1 - min(1, max(0, editProgress)))
+    }
+
+    private var dragDistance: CGFloat {
+        hypot(dragOffset.width, dragOffset.height)
+    }
+
+    /// 0 at rest → 1 when the drag is clearly a dismissal.
+    private var dragProgress: CGFloat {
+        min(1, dragDistance / 260)
+    }
+
+    private var backgroundOpacity: Double {
+        isExpanded ? 1 - 0.9 * dragProgress : 0
+    }
+
+    /// The chrome ducks out almost immediately once a drag starts.
+    private var chromeOpacity: Double {
+        isExpanded ? 1 - min(1, dragDistance / 90) : 0
+    }
+
+    // MARK: - Interaction
+
+    /// One drag gesture, split by its opening direction: horizontal drags
+    /// scrub the edit slide, vertical drags stay the grab-to-dismiss.
+    private func cardDrag(in size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 10)
+            .onChanged { value in
+                // While the color sheet is up, the card holds still — the
+                // sheet's own grabber/swipe is the way out.
+                guard colorEdit == nil else { return }
+                if dragAxis == nil {
+                    let t = value.translation
+                    // Once the card is pinned in edit mode, every drag slides.
+                    dragAxis = editProgress > 0 || abs(t.width) > abs(t.height)
+                        ? .horizontal : .vertical
+                    editDragBase = editProgress
+                }
+                switch dragAxis {
+                case .horizontal:
+                    let shift = size.width * EditMode.hiddenFraction
+                    var p = editDragBase - value.translation.width / shift
+                    if p < 0 { p *= 0.3 }               // rubber-band past view…
+                    if p > 1 { p = 1 + (p - 1) * 0.3 }  // …and past edit
+                    editProgress = p
+                case .vertical:
+                    // Direct manipulation: the card tracks the finger 1:1.
+                    dragOffset = value.translation
+                case nil:
+                    break
+                }
+            }
+            .onEnded { value in
+                guard colorEdit == nil else { return }
+                defer { dragAxis = nil }
+                switch dragAxis {
+                case .horizontal:
+                    // Flick wins; otherwise settle to the nearer state.
+                    let shift = size.width * EditMode.hiddenFraction
+                    let predicted = editDragBase - value.predictedEndTranslation.width / shift
+                    isEditing = predicted > 0.5
+                    withAnimation(.editSlide) {
+                        editProgress = isEditing ? 1 : 0
+                    }
+                case .vertical:
+                    let predicted = hypot(
+                        value.predictedEndTranslation.width,
+                        value.predictedEndTranslation.height
+                    )
+                    if predicted > 240 {
+                        close()
+                    } else {
+                        withAnimation(.spring(duration: 0.4, bounce: 0.35)) {
+                            dragOffset = .zero
+                        }
+                    }
+                case nil:
+                    break
+                }
+            }
+    }
+
+    // MARK: - Color editing
+
+    /// A tag was tapped: the card slides back to full width — riding up if
+    /// the stop would sit behind the sheet — with the tapped tag docked at
+    /// its right edge, and the Choose-color sheet rises.
+    private func openColorEdit(_ index: Int) {
+        dockedStop = index
+        withAnimation(.editSlide) {
+            colorEdit = ColorEditTarget(id: index)
+            editProgress = 0
+        }
+    }
+
+    /// The sheet is gone (✕ or swipe): the card slides back into edit mode.
+    /// The tag stays docked (full bloom, label hidden) until the slide lands,
+    /// then hands back to the edit-mode look.
+    private func closeColorEdit() {
+        withAnimation(.editSlide) {
+            editProgress = 1
+        } completion: {
+            guard colorEdit == nil else { return }   // already reopened
+            withAnimation(.editSlide) {
+                dockedStop = nil
+            }
+        }
+    }
+
+    private func stopHexBinding(_ index: Int) -> Binding<UInt32> {
+        Binding(
+            get: { stops[index].hex },
+            set: { newHex in
+                var edited = stops
+                edited[index] = SkyStop(hex: newHex, location: edited[index].location)
+                editedStops = edited
+            }
+        )
+    }
+
+    private func close() {
+        isEditing = false
+        withAnimation(.heroClose) {
+            isExpanded = false
+            dragOffset = .zero
+            editProgress = 0
+        } completion: {
+            onClosed()
+        }
+    }
+}
+
+#Preview {
+    GalleryView()
+}

@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Sky — add / remove color prototype</title>
+<style>
+  :root {
+    --settle: cubic-bezier(.22, 1, .36, 1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    background: #d8d8d8;
+    font-family: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif;
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+    touch-action: none;
+  }
+
+  .stage {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 28px;
+  }
+
+  /* ── Phone ──────────────────────────────────────────────────── */
+
+  .phone {
+    position: relative;
+    width: 402px; height: 874px;
+    background: #EEEEEE;
+    border-radius: 60px;
+    overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,.25);
+    transform-origin: center;
+    flex: none;
+  }
+
+  .header {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    padding: 24px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 30;
+    pointer-events: none;
+  }
+  .header .title {
+    position: absolute; left: 0; right: 0;
+    text-align: center;
+    font-size: 24px; font-weight: 700;
+    color: #B4B4B4;
+  }
+
+  /* Liquid Glass stand-in: the same look the app gets from .glass. */
+  .glass {
+    background: rgba(255,255,255,.55);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 4px 14px rgba(0,0,0,.08), inset 0 0 0 .5px rgba(255,255,255,.7);
+  }
+  .glassBtn {
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 800; color: #8a8a8a;
+    cursor: pointer;
+    transition: transform .18s var(--settle);
+  }
+  .glassBtn:active { transform: scale(.92); }
+  .glassBtn.pop { animation: pop .32s var(--settle); }
+  @keyframes pop { 0% { transform: scale(.88); } 60% { transform: scale(1.06); } 100% { transform: scale(1); } }
+
+  /* The scene holds the card AND its tags so they travel together.
+     Picture: card at x = 16.  Stops: scene shifted −204 → card at −188. */
+  .scene {
+    position: absolute;
+    inset: 0;
+    will-change: transform;
+  }
+
+  /* Card, exactly the app geometry: 370×548.66, corner 55. */
+  .card {
+    position: absolute;
+    width: 370px; height: 548.66px;
+    left: 16px; top: 162.67px;
+    border-radius: 55px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.18);
+    cursor: grab;
+    touch-action: none;
+    overflow: hidden;
+    will-change: transform;
+  }
+  .card:active { cursor: grabbing; }
+  /* A thin light line across the card at the new stop's height. */
+  .card .line {
+    position: absolute; left: 0; right: 0;
+    height: 2px; margin-top: -1px;
+    background: #fff;
+    transform-origin: 100% 50%;
+    pointer-events: none;
+  }
+
+  /* ── Stop tags ──────────────────────────────────────────────── */
+
+  /* Left of the tail-tip line (x = 364) is behind the card, so a tag
+     entering from the left comes out from under it. */
+  .tags {
+    position: absolute; top: 0; bottom: 0; left: 0; right: -400px;
+    clip-path: inset(0 0 0 364px);
+  }
+  .tagRow {
+    position: absolute;
+    left: 364px;                       /* tail tip = card right − 22 */
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    height: 40px;
+    cursor: grab;
+    z-index: 10;
+    touch-action: none;
+    transform-origin: 0 50%;
+    will-change: transform, opacity;
+  }
+  .tagRow:active { cursor: grabbing; }
+  .tagRow svg { flex: none; overflow: visible; }
+  .tagRow svg .body {
+    fill: #fff;
+    filter:
+      drop-shadow(0 5.5px 11px rgba(0,0,0,.15))
+      drop-shadow(0 2.75px 5.5px rgba(0,0,0,.05))
+      drop-shadow(0 1.375px 2.75px rgba(0,0,0,.05));
+  }
+  .tagRow .swatch { transition: stroke .2s; stroke: transparent; stroke-width: 2; }
+  .tagRow.selected .swatch { stroke: rgba(0,0,0,.28); }
+  .label {
+    height: 30px;
+    display: flex; align-items: center;
+    font-size: 24px; font-weight: 700;
+    color: #A2A0A0;
+    white-space: nowrap;
+  }
+
+  /* ── Bottom bar: just the + ─────────────────────────────────── */
+
+  .bar {
+    position: absolute;
+    right: 20px;
+    bottom: 50px;                      /* home indicator 34 + 16 */
+    z-index: 30;
+  }
+
+  /* ── Haptic indicator ───────────────────────────────────────── */
+
+  .hapticDot {
+    position: absolute;
+    top: 34px; right: 88px;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #4a4a4a;
+    opacity: 0;
+    z-index: 60;
+    pointer-events: none;
+  }
+  .hapticDot.tick { animation: tick .18s ease-out; }
+  .hapticDot.thud { animation: thud .3s ease-out; }
+  @keyframes tick { 0% { opacity: .55; transform: scale(1);   } 100% { opacity: 0; transform: scale(2.4); } }
+  @keyframes thud { 0% { opacity: .9;  transform: scale(1.4); } 100% { opacity: 0; transform: scale(3.6); } }
+
+  /* ── Tuning panel ───────────────────────────────────────────── */
+
+  .panel {
+    width: 290px;
+    max-height: calc(100% - 32px);
+    overflow-y: auto;
+    background: rgba(255,255,255,.75);
+    backdrop-filter: blur(14px);
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.12);
+    font-family: -apple-system, system-ui, sans-serif;
+    flex: none;
+  }
+  .panel h2 { font-size: 14px; font-weight: 700; color: #555; margin-bottom: 6px; }
+  .panel h3 { font-size: 11px; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: .04em; margin: 20px 0 2px; }
+  .panel label { display: block; font-size: 12px; color: #777; margin: 12px 0 4px; }
+  .panel label output { float: right; color: #333; font-variant-numeric: tabular-nums; }
+  .panel input[type=range] { width: 100%; }
+  .panel .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; font-size: 12px; color: #777; }
+  .panel .row select { font-size: 12px; max-width: 150px; }
+  .panel button {
+    margin-top: 16px; width: 100%;
+    padding: 8px; border: 0; border-radius: 10px;
+    background: rgba(0,0,0,.07); color: #444; font-size: 12px; font-weight: 600;
+    cursor: pointer;
+  }
+  .panel .hint {
+    margin-top: 16px; padding-top: 12px;
+    border-top: 1px solid rgba(0,0,0,.08);
+    font-size: 11px; line-height: 1.5; color: #999;
+  }
+  .panel .hint b { color: #666; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="phone" id="phone">
+    <div class="header">
+      <div class="title">Jun 15</div>
+      <div class="glassBtn glass" style="pointer-events:auto">‹</div>
+    </div>
+
+    <div class="scene" id="scene">
+      <div class="card" id="card"></div>
+      <div class="tags" id="tags"><!-- tag rows injected here --></div>
+    </div>
+
+    <div class="bar">
+      <div class="glassBtn glass" id="plus">+</div>
+    </div>
+
+    <div class="hapticDot" id="hapticDot"></div>
+  </div>
+
+  <aside class="panel">
+    <h2>Add / remove color</h2>
+
+    <h3>Example</h3>
+    <div class="row">
+      <span>Gradient</span>
+      <select id="iPalette">
+        <option value="two" selected>Two colors</option>
+        <option value="three">Three colors</option>
+        <option value="dawn">Dawn (six colors)</option>
+      </select>
+    </div>
+
+    <h3>Card slide (drag the card sideways)</h3>
+    <label>How long the slide takes <output id="oDur">220 ms</output></label>
+    <input type="range" id="iDur" min="150" max="700" step="10" value="220">
+    <label>How much it overshoots <output id="oBounce">none</output></label>
+    <input type="range" id="iBounce" min="0" max="0.6" step="0.05" value="0">
+
+    <h3>Adding a color (+)</h3>
+    <div class="row">
+      <span>Where the new color goes</span>
+      <select id="iWhere">
+        <option value="gap" selected>biggest gap</option>
+        <option value="selected">below the selected one</option>
+      </select>
+    </div>
+    <div class="row">
+      <span>How the new tag comes in</span>
+      <select id="iEnter2">
+        <option value="right" selected>slides in from the right</option>
+        <option value="slide">slides out from under the card</option>
+        <option value="bloom">grows out of its tip</option>
+      </select>
+    </div>
+    <div class="row">
+      <span>Fades in as it comes</span>
+      <input type="checkbox" id="iFade" checked>
+    </div>
+    <label>How far it travels <output id="oDist">220 px</output></label>
+    <input type="range" id="iDist" min="60" max="400" step="10" value="220">
+    <label>How long it takes <output id="oBloomDur">380 ms</output></label>
+    <input type="range" id="iBloomDur" min="150" max="800" step="10" value="380">
+    <label>How much it overshoots <output id="oBloomBounce">0.15</output></label>
+    <input type="range" id="iBloomBounce" min="0" max="0.7" step="0.05" value="0.15">
+    <label>New color: shift lightness <output id="oShift">0%</output></label>
+    <input type="range" id="iShift" min="-20" max="20" step="1" value="0">
+    <div class="row">
+      <span>In picture mode, + slides to stops first</span>
+      <input type="checkbox" id="iEnter" checked>
+    </div>
+    <label>Pause between slide and new tag <output id="oDelay">120 ms</output></label>
+    <input type="range" id="iDelay" min="0" max="400" step="10" value="120">
+
+    <h3>How everything else reacts</h3>
+    <div class="row">
+      <span>Preset</span>
+      <select id="iPreset">
+        <option value="subtle" selected>subtle: make room, relax (recommended)</option>
+        <option value="impact">impact: a small jolt on landing</option>
+        <option value="kick">sideways kick on landing</option>
+        <option value="room">roomy: bigger spread, slower relax</option>
+        <option value="custom">custom</option>
+      </select>
+    </div>
+    <div class="row">
+      <span>Starts when the new tag lands (not when it's sent)</span>
+      <input type="checkbox" id="iOnLand" checked>
+    </div>
+    <div class="row">
+      <span>Reaction</span>
+      <select id="iReact">
+        <option value="kick">neighbors kick sideways</option>
+        <option value="ripple">ripple through all tags</option>
+        <option value="bounce">neighbors jolt apart and back</option>
+        <option value="spreadDrift" selected>neighbors spread, then drift back</option>
+        <option value="spread">neighbors spread and stay (tags only — tips end up off their stop)</option>
+        <option value="spreadReal">neighbors spread for real (moves the stops)</option>
+        <option value="squeeze">neighbors squeeze</option>
+        <option value="line">light line across the card</option>
+        <option value="pulse">card pulses</option>
+        <option value="none">nothing</option>
+      </select>
+    </div>
+    <label>How strong <output id="oNudgeDist">5</output></label>
+    <input type="range" id="iNudgeDist" min="0" max="24" step="1" value="5">
+    <label>How long it lasts <output id="oNudgeDur">360 ms</output></label>
+    <input type="range" id="iNudgeDur" min="80" max="1200" step="10" value="360">
+    <label>How much it overshoots <output id="oReactBounce">none</output></label>
+    <input type="range" id="iReactBounce" min="0" max="0.7" step="0.05" value="0">
+    <label>Starts this long after the tag appears <output id="oNudgeDelay">0 ms</output></label>
+    <input type="range" id="iNudgeDelay" min="0" max="400" step="10" value="0">
+    <label>Drift back: holds this long first <output id="oHold">150 ms</output></label>
+    <input type="range" id="iHold" min="0" max="1500" step="10" value="150">
+    <label>Drift back: how long it takes <output id="oDrift">700 ms</output></label>
+    <input type="range" id="iDrift" min="100" max="2000" step="10" value="700">
+    <label>Drift back: how much it overshoots <output id="oDriftBounce">none</output></label>
+    <input type="range" id="iDriftBounce" min="0" max="0.7" step="0.05" value="0">
+
+    <h3>Removing a color (pull a tag to the right)</h3>
+    <label>How far to pull before it lets go <output id="oPull">60 px</output></label>
+    <input type="range" id="iPull" min="20" max="160" step="5" value="60">
+    <div class="row">
+      <span>How it feels in the hand</span>
+      <select id="iFeel">
+        <option value="magnet" selected>magnet: resists, then pops free</option>
+        <option value="loose">loose: follows, then goes heavy</option>
+        <option value="rubber">rubber band: heavier the whole way</option>
+        <option value="none">no friction at all</option>
+      </select>
+    </div>
+    <label>How much it resists <output id="oResist">0.40</output></label>
+    <input type="range" id="iResist" min="0" max="0.8" step="0.05" value="0.4">
+    <div class="row">
+      <span>When the gradient loses the color</span>
+      <select id="iPreview">
+        <option value="scrub" selected>gradually as you pull</option>
+        <option value="flip">the moment it lets go</option>
+        <option value="after">only once you release</option>
+      </select>
+    </div>
+    <label>How long it takes to fly off <output id="oExit">260 ms</output></label>
+    <input type="range" id="iExit" min="100" max="700" step="10" value="260">
+
+    <button id="reset">Reset colors</button>
+
+    <div class="hint">
+      <b>Drag the card</b> left to see the stops, right to go back.
+      <b>+</b> adds a color between two existing ones, Figma-style: halfway,
+      in the color the gradient already has there — so the sky doesn't change,
+      a new handle appears. <b>Pull a tag to the right</b>, away from the card. It resists like a
+      magnet, its color melting out of the sky as you go; at the let-go point
+      it pops free, and releasing it there sends it off the edge. Let go early
+      and it snaps back, color and all. <b>Tap</b> a tag to select it. The last color
+      can't be removed.
+    </div>
+  </aside>
+</div>
+
+<script>
+/* ── Geometry, verbatim from the app ─────────────────────────── */
+const CARD = { top: 162.67, width: 370, height: 548.66 };
+const SLIDE = 204;                      // card travel 16 → −188
+const TAG_W = 57.15, TAG_H = 40;
+const TAGS_APPEAR_AT = 0.6, TAGS_WINDOW = 0.4, TAG_START_SCALE = 0.2;
+const EXIT_X = 480;                     // pulled this far, the row is off the right edge
+
+const PALETTES = {
+  two:   [{ hex: 0xA6CADF, loc: 0 }, { hex: 0xFF9881, loc: 1 }],
+  three: [{ hex: 0xA6CADF, loc: 0 }, { hex: 0xBEB7B1, loc: 0.5 }, { hex: 0xFF9881, loc: 1 }],
+  dawn: [                              /* the “Jun 15” card */
+    { hex: 0xA6CADF, loc: 0.065 }, { hex: 0xA7CDE0, loc: 0.200 }, { hex: 0xBEB7B1, loc: 0.537 },
+    { hex: 0xDA9096, loc: 0.761 }, { hex: 0xFF9881, loc: 0.891 }, { hex: 0xEFB291, loc: 0.999 },
+  ],
+};
+let palette = 'two';
+let stops = [], nextId = 0, selectedId = null;
+
+const hexStr = h => '#' + h.toString(16).toUpperCase().padStart(6, '0');
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+/* Per-channel sRGB mix — what the gradient itself shows at that spot. */
+function mixHex(a, b, t) {
+  const m = s => { const x = (a >> s) & 255, y = (b >> s) & 255; return Math.round(x + (y - x) * t); };
+  return (m(16) << 16) | (m(8) << 8) | m(0);
+}
+function hexToHsl(hex) {
+  const r = ((hex >> 16) & 255) / 255, g = ((hex >> 8) & 255) / 255, b = (hex & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min, l = (max + min) / 2;
+  if (d === 0) return { h: 0, s: 0, l };
+  const s = d / (1 - Math.abs(2 * l - 1));
+  const h = max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return { h: h * 60, s, l };
+}
+function hslToHex({ h, s, l }) {
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2;
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] :
+                    h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  const to255 = v => Math.round(clamp(v + m, 0, 1) * 255);
+  return (to255(r) << 16) | (to255(g) << 8) | to255(b);
+}
+
+/* The tag outline, verbatim from the Figma SVG (see StopTagShape.swift). */
+const TAG_PATH = `M22 37.8239C22 35.7794 22 34.7571 22.2396 33.8002C22.4521 32.952 22.8021
+32.1443 23.2758 31.4094C23.8103 30.5802 24.5563 29.8813 26.0482 28.4833L33.2482
+21.7372C36.3304 18.8492 37.8716 17.4053 39.6271 16.86C41.1726 16.38 42.8274 16.38 44.3729
+16.86C46.1284 17.4053 47.6696 18.8492 50.7518 21.7372L57.9518 28.4833C59.4437 29.8813
+60.1897 30.5802 60.7242 31.4094C61.1979 32.1443 61.5479 32.952 61.7604 33.8002C62 34.7571
+62 35.7794 62 37.8239L62 60.7272C62 65.2076 62 67.4478 61.1281 69.1591C60.3611 70.6644
+59.1372 71.8883 57.6319 72.6553C55.9206 73.5272 53.6804 73.5272 49.2 73.5272L34.8
+73.5272C30.3196 73.5272 28.0794 73.5272 26.3681 72.6553C24.8628 71.8883 23.6389 70.6644
+22.8719 69.1591C22 67.4478 22 65.2076 22 60.7272Z`;
+
+/* ── Tuning ──────────────────────────────────────────────────── */
+const cfg = {
+  dur: 220, bounce: 0,
+  where: 'gap', enterAnim: 'right', fade: true, dist: 220, bloomDur: 380, bloomBounce: 0.15,
+  shift: 0, enter: true, delay: 120,
+  react: 'spreadDrift', nudgeDist: 5, nudgeDur: 360, nudgeDelay: 0, reactBounce: 0, onLand: true,
+  hold: 150, drift: 700, driftBounce: 0,
+  pullAt: 60, preview: 'scrub', exitDur: 260, feel: 'magnet', resist: 0.4,
+};
+
+/* SwiftUI-style .spring(duration:bounce:) → x(u), u in 0…1, ends at 1. */
+function springFn(bounce) {
+  const zeta = 1 - bounce;
+  const x = u => {
+    if (zeta >= 1) return 1 - Math.exp(-2 * Math.PI * u) * (1 + 2 * Math.PI * u);
+    const wd = Math.sqrt(1 - zeta * zeta);
+    return 1 - Math.exp(-2 * Math.PI * zeta * u) *
+      (Math.cos(2 * Math.PI * wd * u) + (zeta / wd) * Math.sin(2 * Math.PI * wd * u));
+  };
+  const residual = 1 - x(1);
+  return u => u >= 1 ? 1 : x(u) + residual * u;
+}
+
+/* Animate a number with a spring; `set` runs every frame. Returns a cancel. */
+function animate(from, to, dur, bounce, set, done) {
+  const f = springFn(bounce), t0 = performance.now();
+  let raf;
+  const step = now => {
+    const u = clamp((now - t0) / dur, 0, 1);
+    set(from + (to - from) * f(u));
+    if (u < 1) raf = requestAnimationFrame(step); else done?.();
+  };
+  raf = requestAnimationFrame(step);
+  return () => cancelAnimationFrame(raf);
+}
+
+/* ── DOM ─────────────────────────────────────────────────────── */
+const phone = document.getElementById('phone');
+const scene = document.getElementById('scene');
+const card = document.getElementById('card');
+const tags = document.getElementById('tags');
+const plus = document.getElementById('plus');
+const hapticDot = document.getElementById('hapticDot');
+
+/* The color the gradient would show at `loc` if `except` weren't there. */
+function colorWithout(except, loc) {
+  const rest = stops.filter(s => s !== except && !s.leaving).sort((a, b) => a.loc - b.loc);
+  if (rest.length === 0) return except.hex;
+  const below = [...rest].reverse().find(s => s.loc <= loc);
+  const above = rest.find(s => s.loc >= loc);
+  if (!below) return above.hex;
+  if (!above) return below.hex;
+  if (above.loc === below.loc) return below.hex;
+  return mixHex(below.hex, above.hex, (loc - below.loc) / (above.loc - below.loc));
+}
+
+function renderGradient() {
+  let live = stops.filter(s => !s.leaving);
+  if (cfg.preview === 'flip') live = live.filter(s => !s.detached);
+  const sorted = [...live].sort((a, b) => a.loc - b.loc);
+  card.style.background = 'linear-gradient(to bottom, ' + sorted.map(s => {
+    // Scrubbing: the pulled color melts into its surroundings in step with
+    // the finger, so by the let-go point it has already visibly gone.
+    const fade = cfg.preview === 'scrub' ? clamp(Math.max(0, s.rawDx || 0) / cfg.pullAt, 0, 1) : 0;
+    const hex = fade > 0 ? mixHex(s.hex, colorWithout(s, s.loc), fade) : s.hex;
+    return `${hexStr(hex)} ${(s.loc * 100).toFixed(1)}%`;
+  }).join(', ') + ')';
+}
+
+function tagTop(loc) {
+  const y = clamp(loc * CARD.height, 20, CARD.height - 20);
+  return CARD.top + y - TAG_H / 2;
+}
+
+function makeRow(stop) {
+  const row = document.createElement('div');
+  row.className = 'tagRow';
+  row.innerHTML = `
+    <svg width="${TAG_W}" height="${TAG_H}" viewBox="0 0 ${TAG_W} ${TAG_H}">
+      <g transform="matrix(0 -1 1 0 0 40)">
+        <path class="body" d="${TAG_PATH}"/>
+      </g>
+      <rect class="swatch" x="18.71" y="2.725" width="35.63" height="34.55"
+            rx="5" fill="${hexStr(stop.hex)}"/>
+    </svg>
+    <div class="label">${hexStr(stop.hex)}</div>`;
+  row.style.top = tagTop(stop.loc) + 'px';
+  attachPull(stop, row);
+  tags.appendChild(row);
+  stop.row = row;
+  return row;
+}
+
+function loadPalette(name) {
+  palette = name;
+  for (const s of stops) s.row.remove();
+  stops = PALETTES[name].map((s, i) => ({ ...s, id: i, bloom: 1, pull: 0, alpha: 1, kx: 0, sq: 1 }));
+  nextId = stops.length; selectedId = null;
+  stops.forEach(makeRow);
+  renderGradient();
+  applyProgress(progress);
+}
+
+function select(id) {
+  selectedId = id;
+  for (const s of stops) s.row.classList.toggle('selected', s.id === id);
+}
+
+/* ── Progress: 0 = picture, 1 = stops ────────────────────────── */
+let progress = 0;
+let settled = 0;                        // the committed mode
+let cancelSlide = null;
+
+function applyProgress(p) {
+  progress = p;
+  scene.style.transform = `translateX(${-SLIDE * p}px)`;
+  for (const s of stops) layoutTag(s);
+}
+
+/* One place decides where a tag sits: the mode slide brings every tag in
+   from its tip; on top of that a new tag has its own entrance (`bloom`
+   0→1) and a pulled tag has its drag offset (`pull`). */
+function layoutTag(s) {
+  const slideT = clamp((progress - TAGS_APPEAR_AT) / TAGS_WINDOW, 0, 1);
+  let scale, opacity, dx = s.pull + s.kx;
+  if (cfg.enterAnim === 'bloom') {
+    const t = slideT * s.bloom;
+    scale = TAG_START_SCALE + (1 - TAG_START_SCALE) * t;
+    opacity = Math.min(1, t * 4);
+  } else {
+    const dir = cfg.enterAnim === 'right' ? 1 : -1;
+    scale = TAG_START_SCALE + (1 - TAG_START_SCALE) * slideT;
+    dx += dir * (1 - s.bloom) * cfg.dist;
+    opacity = Math.min(1, slideT * 4) * (cfg.fade ? s.bloom : 1);
+  }
+  s.row.style.transform = `translateX(${dx}px) scale(${scale * s.sq})`;
+  s.row.style.opacity = opacity * s.alpha;
+  s.row.style.pointerEvents = slideT > 0.95 && s.bloom > 0.95 && !s.leaving ? 'auto' : 'none';
+}
+
+function settleTo(mode, done) {
+  cancelSlide?.();
+  if (mode !== settled) haptic('tick');
+  settled = mode;
+  cancelSlide = animate(progress, mode, cfg.dur, cfg.bounce, applyProgress, done);
+}
+
+/* ── Card drag: horizontal scrub ─────────────────────────────── */
+let drag = null;
+card.addEventListener('pointerdown', e => {
+  cancelSlide?.();
+  drag = { x0: e.clientX, base: progress, lastX: e.clientX, lastT: performance.now(), v: 0 };
+  card.setPointerCapture(e.pointerId);
+});
+card.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const now = performance.now(), dt = Math.max(1, now - drag.lastT);
+  drag.v = 0.7 * drag.v + 0.3 * ((e.clientX - drag.lastX) / dt);   // px/ms
+  drag.lastX = e.clientX; drag.lastT = now;
+  let p = drag.base - (e.clientX - drag.x0) / fitScale / SLIDE;
+  if (p < 0) p *= 0.3;                   // rubber-band past picture…
+  if (p > 1) p = 1 + (p - 1) * 0.3;      // …and past stops
+  applyProgress(p);
+});
+const endDrag = () => {
+  if (!drag) return;
+  const predicted = progress - (drag.v * 180) / fitScale / SLIDE;   // flick wins
+  drag = null;
+  settleTo(predicted > 0.5 ? 1 : 0);
+};
+card.addEventListener('pointerup', endDrag);
+card.addEventListener('pointercancel', endDrag);
+
+/* ── Pull a tag right, off the card, to remove it ────────────── */
+
+/* How far the tag actually moves for `dx` of finger travel. */
+function displacement(dx, detached) {
+  const r = cfg.resist, T = cfg.pullAt;
+  switch (cfg.feel) {
+    case 'magnet': return detached ? dx : dx * (1 - r * Math.min(1, dx / T));  // held, then free
+    case 'loose':  return dx < T ? dx : T + (dx - T) * (1 - r);               // free, then heavy
+    case 'rubber': return dx / (1 + r * dx / T);                               // heavier as it goes
+    default:       return dx;
+  }
+}
+
+function attachPull(s, row) {
+  let g = null;
+  row.addEventListener('pointerdown', e => {
+    e.stopPropagation();
+    s.cancelPull?.();
+    g = { x0: e.clientX, moved: false };
+    try { row.setPointerCapture(e.pointerId); } catch {}
+  });
+  row.addEventListener('pointermove', e => {
+    if (!g) return;
+    const dx = (e.clientX - g.x0) / fitScale;
+    if (Math.abs(dx) > 4) g.moved = true;
+    if (!g.moved) return;
+    const canRemove = stops.length > 1;
+    s.rawDx = dx;
+    if (dx < 0) s.pull = dx * 0.15;                      // barely gives toward the card
+    else if (!canRemove) s.pull = dx * 0.25;             // the last one just resists
+    else {
+      const detached = dx >= cfg.pullAt;
+      if (detached !== !!s.detached) {
+        // The feel changes at the let-go point. Rather than jump, the tag
+        // catches up over a few frames — that catch-up *is* the pop.
+        const jump = displacement(dx, !!s.detached) - displacement(dx, detached);
+        s.cancelCatch?.();
+        s.catch = jump;
+        s.cancelCatch = animate(jump, 0, 160, 0.25, v => {
+          s.catch = v; s.pull = displacement(s.rawDx, s.detached) + v; layoutTag(s);
+        });
+        s.detached = detached;
+        s.alpha = detached ? 0.55 : 1;
+        haptic(detached ? 'thud' : 'tick');
+      }
+      s.pull = displacement(dx, s.detached) + (s.catch || 0);
+    }
+    renderGradient();
+    layoutTag(s);
+  });
+  const end = () => {
+    if (!g) return;
+    const { moved } = g; g = null;
+    s.cancelCatch?.(); s.catch = 0;
+    if (!moved) { select(s.id); return; }
+    if (s.detached) removeStop(s);
+    else {
+      const p0 = s.pull, d0 = s.rawDx || 0;              // pull and melt ease back together
+      s.cancelPull = animate(1, 0, 320, 0.2, v => { s.pull = p0 * v; s.rawDx = d0 * v; layoutTag(s); renderGradient(); });
+    }
+  };
+  row.addEventListener('pointerup', end);
+  row.addEventListener('pointercancel', end);
+}
+
+function removeStop(s) {
+  s.leaving = true;
+  stops = stops.filter(x => x !== s);
+  if (selectedId === s.id) selectedId = null;
+  renderGradient();
+  layoutTag(s);
+  // Flies the rest of the way off the right edge, fading, then is gone.
+  const from = s.pull;
+  animate(0, 1, cfg.exitDur, 0, v => {
+    s.pull = from + (EXIT_X - from) * v;
+    s.alpha = 0.55 * (1 - v);
+    layoutTag(s);
+  }, () => s.row.remove());
+}
+
+/* ── Add color ───────────────────────────────────────────────── */
+function insertStop() {
+  const sorted = [...stops].sort((a, b) => a.loc - b.loc);
+  if (sorted.length === 0) return;
+  if (sorted.length === 1) {
+    // A lone color has no gap to split: give it a partner at the far end of
+    // the card, in the same color, so the sky still doesn't change.
+    const only = sorted[0];
+    const stop = { id: nextId++, loc: only.loc <= 0.5 ? 1 : 0, hex: only.hex,
+                   bloom: 0, pull: 0, alpha: 1, kx: 0, sq: 1 };
+    stops.push(stop); makeRow(stop); renderGradient(); select(stop.id); layoutTag(stop);
+    arrive(stop, only, only);
+    return;
+  }
+  let a, b;
+  const sel = sorted.findIndex(s => s.id === selectedId);
+  if (cfg.where === 'selected' && sel >= 0) {
+    // Figma: between the selected stop and the next; from the last, go up.
+    if (sel < sorted.length - 1) { a = sorted[sel]; b = sorted[sel + 1]; }
+    else { a = sorted[sel - 1]; b = sorted[sel]; }
+  } else {
+    // Biggest gap, so repeated taps keep subdividing evenly.
+    let best = -1;
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const g = sorted[i + 1].loc - sorted[i].loc;
+      if (g > best) { best = g; a = sorted[i]; b = sorted[i + 1]; }
+    }
+  }
+  let hex = mixHex(a.hex, b.hex, 0.5);         // the gradient doesn't change…
+  if (cfg.shift) {                              // …unless asked to make the newcomer show
+    const c = hexToHsl(hex); c.l = clamp(c.l + cfg.shift / 100, 0, 1); hex = hslToHex(c);
+  }
+  const stop = { id: nextId++, loc: (a.loc + b.loc) / 2, hex, bloom: 0, pull: 0, alpha: 1, kx: 0, sq: 1 };
+  stops.push(stop);
+  makeRow(stop);
+  renderGradient();
+  select(stop.id);
+  layoutTag(stop);
+  arrive(stop, a, b);
+}
+
+/* Run the newcomer's entrance. The thud and the neighbors' reaction fire
+   when it *lands* — the last 10% of its travel — so they read as contact,
+   not as something that happened on its own while the tag was still far off. */
+function arrive(stop, a, b) {
+  let landed = false;
+  const land = () => {
+    if (landed) return;
+    landed = true;
+    haptic('thud');
+    if (cfg.nudgeDist > 0) setTimeout(() => react(a, b, stop), cfg.nudgeDelay);
+  };
+  if (!cfg.onLand) land();
+  animate(0, 1, cfg.bloomDur, cfg.bloomBounce, v => {
+    stop.bloom = v; layoutTag(stop);
+    if (v >= 0.9) land();
+  }, land);
+}
+
+/* How the rest of the scene acknowledges the newcomer. Every variant runs
+   on the same strength / duration, so they can be compared like for like. */
+function react(a, b, stop) {
+  const k = cfg.nudgeDist, dur = cfg.nudgeDur, bo = cfg.reactBounce;
+  const outAndBack = v => Math.sin(Math.PI * Math.min(1, v));
+  const others = stops.filter(s => s !== stop && !s.leaving);
+  const pair = a === b ? [[a, -1]] : [[a, -1], [b, 1]];
+  switch (cfg.react) {
+    case 'kick':      // the two neighbors get shoved sideways and settle back
+      for (const [n] of pair)
+        animate(0, 1, dur, bo, v => { n.kx = k * outAndBack(v); layoutTag(n); });
+      break;
+    case 'ripple': {  // a sideways wave spreading out from the new stop
+      const y0 = tagTop(stop.loc);
+      for (const n of others) {
+        const d = Math.abs(tagTop(n.loc) - y0);
+        const amp = k * Math.max(0.25, 1 - d / 400);
+        setTimeout(() =>
+          animate(0, 1, dur, bo, v => { n.kx = amp * outAndBack(v); layoutTag(n); }),
+          d * 0.7);
+      }
+      break;
+    }
+    case 'bounce':    // the old nudge: neighbors step away and come back
+      for (const [n, dir] of pair) {
+        const base = tagTop(n.loc);
+        animate(0, 1, dur, bo, v => n.row.style.top = (base + dir * k * outAndBack(v)) + 'px');
+      }
+      break;
+    case 'spread':    // neighbors make room and keep it — drawings only, so
+      for (const [n, dir] of pair) {   // their tips no longer sit on their stops
+        const base = tagTop(n.loc);
+        animate(0, 1, dur, bo, v => n.row.style.top = (base + dir * k * v) + 'px');
+      }
+      break;
+    case 'spreadDrift':  // make room now, ease home slowly: honest by the end
+      for (const [n, dir] of pair) {
+        const base = tagTop(n.loc);
+        animate(0, 1, dur, bo, v => n.row.style.top = (base + dir * k * v) + 'px',
+          () => setTimeout(() => animate(1, 0, cfg.drift, cfg.driftBounce,
+            v => n.row.style.top = (base + dir * k * v) + 'px'), cfg.hold));
+      }
+      break;
+    case 'spreadReal':   // actually move the stops apart — the gradient changes
+      for (const [n, dir] of pair) {
+        const from = n.loc, to = clamp(from + dir * k / CARD.height, 0, 1);
+        animate(0, 1, dur, bo, v => {
+          n.loc = from + (to - from) * v;
+          n.row.style.top = tagTop(n.loc) + 'px';
+          renderGradient();
+        });
+      }
+      break;
+    case 'squeeze':   // neighbors press down and pop back
+      for (const [n] of pair)
+        animate(0, 1, dur, bo, v => { n.sq = 1 - 0.012 * k * outAndBack(v); layoutTag(n); });
+      break;
+    case 'line': {    // a light line sweeps across the card at the new height
+      const line = document.createElement('div');
+      line.className = 'line';
+      line.style.top = clamp(stop.loc * CARD.height, 1, CARD.height - 1) + 'px';
+      card.appendChild(line);
+      animate(0, 1, dur, 0, v => {
+        line.style.transform = `scaleX(${Math.min(1, v * 2)})`;
+        line.style.opacity = (k / 24) * Math.max(0, 1 - Math.max(0, v - 0.3) / 0.7);
+      }, () => line.remove());
+      break;
+    }
+    case 'pulse':     // the whole card breathes once
+      animate(0, 1, dur, bo, v => card.style.transform = `scale(${1 + 0.0015 * k * outAndBack(v)})`,
+              () => card.style.transform = '');
+      break;
+  }
+}
+
+plus.addEventListener('click', () => {
+  plus.classList.remove('pop'); void plus.offsetWidth; plus.classList.add('pop');
+  if (settled === 0 && cfg.enter) {
+    // Slide into stops first, then let the new one arrive on its own beat
+    // so it stands out from the tags that come with the slide.
+    settleTo(1);
+    setTimeout(insertStop, cfg.dur * 0.6 + cfg.delay);
+  } else {
+    insertStop();                        // in picture mode it arrives silently
+  }
+});
+
+/* ── Fit the phone to the window ─────────────────────────────── */
+let fitScale = 1;
+function fit() {
+  fitScale = Math.min(1, (innerHeight - 32) / 874);
+  phone.style.transform = `scale(${fitScale})`;
+}
+addEventListener('resize', fit); fit();
+
+/* ── Haptics ─────────────────────────────────────────────────── */
+function haptic(kind) {
+  navigator.vibrate?.(kind === 'thud' ? 18 : 6);
+  hapticDot.className = 'hapticDot';
+  void hapticDot.offsetWidth;
+  hapticDot.classList.add(kind);
+}
+
+/* ── Panel wiring ────────────────────────────────────────────── */
+function bind(id, out, fmt, apply) {
+  const el = document.getElementById(id), o = document.getElementById(out);
+  el.addEventListener('input', () => { apply(parseFloat(el.value)); o.textContent = fmt(parseFloat(el.value)); });
+}
+const check = (id, apply) => document.getElementById(id).addEventListener('change', e => apply(e.target.checked));
+const pick = (id, apply) => document.getElementById(id).addEventListener('change', e => apply(e.target.value));
+const ms = v => v + ' ms', px = v => v + ' px';
+const bounceFmt = v => v === 0 ? 'none' : v.toFixed(2);
+
+pick('iPalette', loadPalette);
+bind('iDur', 'oDur', ms, v => cfg.dur = v);
+bind('iBounce', 'oBounce', bounceFmt, v => cfg.bounce = v);
+pick('iWhere', v => cfg.where = v);
+pick('iEnter2', v => { cfg.enterAnim = v; applyProgress(progress); });
+check('iFade', v => cfg.fade = v);
+bind('iDist', 'oDist', px, v => cfg.dist = v);
+bind('iBloomDur', 'oBloomDur', ms, v => cfg.bloomDur = v);
+bind('iBloomBounce', 'oBloomBounce', bounceFmt, v => cfg.bloomBounce = v);
+bind('iShift', 'oShift', v => (v > 0 ? '+' : '') + v + '%', v => cfg.shift = v);
+check('iEnter', v => cfg.enter = v);
+bind('iDelay', 'oDelay', ms, v => cfg.delay = v);
+const PRESETS = {
+  subtle: { iReact: 'spreadDrift', iNudgeDist: 5, iNudgeDur: 360, iReactBounce: 0, iNudgeDelay: 0, iHold: 150, iDrift: 700, iDriftBounce: 0, iOnLand: true },
+  impact: { iReact: 'bounce', iNudgeDist: 4, iNudgeDur: 340, iReactBounce: 0.1, iNudgeDelay: 0, iOnLand: true },
+  kick:   { iReact: 'kick', iNudgeDist: 6, iNudgeDur: 300, iReactBounce: 0.15, iNudgeDelay: 0, iOnLand: true },
+  room:   { iReact: 'spreadDrift', iNudgeDist: 8, iNudgeDur: 420, iReactBounce: 0, iNudgeDelay: 0, iHold: 400, iDrift: 1000, iDriftBounce: 0, iOnLand: true },
+};
+/* Set a control as if the user had, so its output and cfg follow. */
+function setControl(id, value) {
+  const el = document.getElementById(id);
+  if (el.type === 'checkbox') { el.checked = value; el.dispatchEvent(new Event('change')); }
+  else if (el.tagName === 'SELECT') { el.value = value; el.dispatchEvent(new Event('change')); }
+  else { el.value = value; el.dispatchEvent(new Event('input')); }
+}
+pick('iPreset', name => { for (const [id, v] of Object.entries(PRESETS[name] || {})) setControl(id, v); });
+/* Any hand edit in this section flips the preset to "custom". */
+for (const id of ['iReact','iNudgeDist','iNudgeDur','iReactBounce','iNudgeDelay','iHold','iDrift','iDriftBounce','iOnLand'])
+  document.getElementById(id).addEventListener('input', e => { if (e.isTrusted) document.getElementById('iPreset').value = 'custom'; });
+check('iOnLand', v => cfg.onLand = v);
+pick('iReact', v => cfg.react = v);
+bind('iNudgeDist', 'oNudgeDist', v => String(v), v => cfg.nudgeDist = v);
+bind('iNudgeDur', 'oNudgeDur', ms, v => cfg.nudgeDur = v);
+bind('iNudgeDelay', 'oNudgeDelay', ms, v => cfg.nudgeDelay = v);
+bind('iReactBounce', 'oReactBounce', bounceFmt, v => cfg.reactBounce = v);
+bind('iHold', 'oHold', ms, v => cfg.hold = v);
+bind('iDrift', 'oDrift', ms, v => cfg.drift = v);
+bind('iDriftBounce', 'oDriftBounce', bounceFmt, v => cfg.driftBounce = v);
+bind('iPull', 'oPull', px, v => cfg.pullAt = v);
+pick('iFeel', v => cfg.feel = v);
+bind('iResist', 'oResist', v => v.toFixed(2), v => cfg.resist = v);
+pick('iPreview', v => { cfg.preview = v; renderGradient(); });
+bind('iExit', 'oExit', ms, v => cfg.exitDur = v);
+document.getElementById('reset').addEventListener('click', () => loadPalette(palette));
+
+loadPalette(palette);
+
+/* Deep links for screenshots: #edit shows stops mode, #edit+add2 inserts twice. */
+if (location.hash.includes('edit')) {
+  if (location.hash.includes('three')) loadPalette('three');
+  applyProgress(1); settled = 1;
+  const n = parseInt((location.hash.match(/add(\d+)/) || [])[1] || 0);
+  for (let i = 0; i < n; i++) { insertStop(); for (const s of stops) { s.bloom = 1; layoutTag(s); } }
+  if (location.hash.includes('pull')) {
+    // Drive the newest tag through a removal with synthetic pointer events.
+    const s = stops[stops.length - 1], r = s.row.getBoundingClientRect();
+    const ev = (type, x) => s.row.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: r.top + 20, pointerId: 1, bubbles: true }));
+    const frac = location.hash.includes('half') ? 0.5 : 1.2;
+    ev('pointerdown', r.left + 20); ev('pointermove', r.left + 30); ev('pointermove', r.left + 20 + cfg.pullAt * frac * fitScale);
+    if (location.hash.includes('release')) ev('pointerup', 900);
+  }
+  if (location.hash.includes('lone')) {
+    // Edge case: strip down to one color, then add twice.
+    while (stops.length > 1) { const s = stops[stops.length - 1]; stops = stops.filter(x => x !== s); s.row.remove(); }
+    renderGradient();
+    insertStop(); insertStop();
+    for (const s of stops) { s.bloom = 1; layoutTag(s); }
+    document.title = 'lone→' + stops.length;
+  }
+}
+</script>
+</body>
+</html>

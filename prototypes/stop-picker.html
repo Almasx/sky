@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Sky — stop picker interaction prototype</title>
+<style>
+  :root {
+    /* ── Tunables (mirrored by the panel sliders) ─────────────── */
+    --zoom-scale: 1.6;        /* how big the active tag gets        */
+    --dim-opacity: 0;         /* where the other elements fade to   */
+    --pop: cubic-bezier(.34, 1.56, .64, 1);   /* springy overshoot  */
+    --settle: cubic-bezier(.22, 1, .36, 1);   /* smooth settle      */
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    background: #d8d8d8;
+    font-family: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif;
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+    touch-action: none;
+  }
+
+  .stage {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 28px;
+  }
+
+  /* ── Phone ──────────────────────────────────────────────────── */
+
+  .phone {
+    position: relative;
+    width: 402px; height: 874px;
+    background: #EEEEEE;
+    border-radius: 60px;
+    overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,.25);
+    transform-origin: center;
+    flex: none;
+  }
+
+  .header {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    padding: 24px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 30;
+    transition: opacity .35s var(--settle);
+  }
+  .header .title {
+    position: absolute; left: 0; right: 0;
+    text-align: center;
+    font-size: 24px; font-weight: 700;
+    color: #B4B4B4;
+    pointer-events: none;
+  }
+  .glassBtn {
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    background: rgba(255,255,255,.55);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 4px 14px rgba(0,0,0,.08), inset 0 0 0 .5px rgba(255,255,255,.7);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; color: #8a8a8a;
+    z-index: 1;
+  }
+
+  /* The zoomable scene: card + guide + tags scale together, anchored at
+     the grabbed stop, so activation feels like zooming into the sky. */
+  .scene {
+    position: absolute;
+    inset: 0;
+    transition: transform var(--spring-dur, .45s) var(--spring-ease, var(--pop));
+  }
+  .scene.zoomed { transform: scale(var(--zoom-scale)); }
+
+  /* Card pinned left, exactly the edit-mode geometry from the app:
+     370×548.66, corner 55, slid to x = −188 on a 402pt screen. */
+  .card {
+    position: absolute;
+    width: 370px; height: 548.66px;
+    left: -188px; top: 162.67px;
+    border-radius: 55px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.18);
+  }
+
+  /* Thin guide line across the card at the active stop's height. */
+  .guide {
+    position: absolute;
+    left: 0; width: 182px;   /* the visible sliver of the card */
+    height: 1.5px;
+    background: rgba(255,255,255,.85);
+    mix-blend-mode: overlay;
+    box-shadow: 0 0 0 .5px rgba(0,0,0,.12);
+    opacity: 0;
+    transition: opacity .2s;
+    z-index: 5;
+    pointer-events: none;
+  }
+
+  /* ── Stop tags ──────────────────────────────────────────────── */
+
+  .tagRow {
+    position: absolute;
+    left: 160px;                       /* tail tip = card right − 22 */
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    height: 40px;
+    transform-origin: 0 50%;           /* zoom blooms from the tail tip */
+    transition:
+      transform var(--spring-dur, .45s) var(--spring-ease, var(--pop)),
+      opacity   .35s var(--settle);
+    cursor: grab;
+    z-index: 10;
+    touch-action: none;
+  }
+  .tagRow.pressed  { transform: scale(.96); transition-duration: .15s; }
+  .tagRow.active   { transform: none; cursor: grabbing; }
+  .tagRow.dimmed   { opacity: var(--dim-opacity); pointer-events: none; }
+
+  .tagRow svg { flex: none; overflow: visible; }
+  .tagRow svg .body {
+    fill: #fff;
+    filter:
+      drop-shadow(0 5.5px 11px rgba(0,0,0,.15))
+      drop-shadow(0 2.75px 5.5px rgba(0,0,0,.05))
+      drop-shadow(0 1.375px 2.75px rgba(0,0,0,.05));
+  }
+  .tagRow svg .swatch {
+    transform-box: fill-box;
+    transform-origin: center;
+    transition: transform var(--spring-dur, .45s) var(--spring-ease, var(--pop));
+  }
+  /* “color more prominent”: the swatch swells and eats the white margin */
+  .tagRow.active svg .swatch { transform: scale(1.14); }
+
+  /* Hex ⇄ percent label morph: two layers crossfading in place. */
+  .label {
+    position: relative;
+    height: 30px;
+    display: flex; align-items: center;
+    font-size: 24px; font-weight: 700;
+    white-space: nowrap;
+  }
+  .label .hex, .label .pct {
+    transition: opacity .3s var(--settle), transform .3s var(--settle), filter .3s;
+  }
+  .label .hex { color: #A2A0A0; }
+  .label .pct {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    display: flex; align-items: center;
+    color: #4a4a4a;                    /* darker: value takes focus */
+    font-variant-numeric: tabular-nums;
+    opacity: 0;
+    transform: translateY(6px) scale(.8);
+    filter: blur(3px);
+    transform-origin: 0 50%;
+  }
+  .tagRow.active .hex { opacity: 0; transform: translateY(-6px) scale(.8); filter: blur(3px); }
+  .tagRow.active .pct { opacity: 1; transform: none; filter: none; }
+
+  /* ── Haptic indicator (since a laptop can’t buzz) ───────────── */
+
+  .hapticDot {
+    position: absolute;
+    top: 34px; right: 88px;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #4a4a4a;
+    opacity: 0;
+    z-index: 40;
+    pointer-events: none;
+  }
+  .hapticDot.tick   { animation: tick .18s ease-out; }
+  .hapticDot.thud   { animation: thud .3s ease-out; }
+  @keyframes tick { 0% { opacity: .55; transform: scale(1);   } 100% { opacity: 0; transform: scale(2.4); } }
+  @keyframes thud { 0% { opacity: .9;  transform: scale(1.4); } 100% { opacity: 0; transform: scale(3.6); } }
+
+  /* ── Tuning panel ───────────────────────────────────────────── */
+
+  .panel {
+    width: 260px;
+    background: rgba(255,255,255,.75);
+    backdrop-filter: blur(14px);
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.12);
+    font-family: -apple-system, system-ui, sans-serif;
+    flex: none;
+  }
+  .panel h2 { font-size: 14px; font-weight: 700; color: #555; margin-bottom: 14px; }
+  .panel label { display: block; font-size: 12px; color: #777; margin: 12px 0 4px; }
+  .panel label output { float: right; color: #333; font-variant-numeric: tabular-nums; }
+  .panel input[type=range] { width: 100%; }
+  .panel .row { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; font-size: 12px; color: #777; }
+  .panel .hint {
+    margin-top: 16px; padding-top: 12px;
+    border-top: 1px solid rgba(0,0,0,.08);
+    font-size: 11px; line-height: 1.5; color: #999;
+  }
+  .panel .hint b { color: #666; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="phone" id="phone">
+    <div class="header" id="header">
+      <div class="title">Jun 15</div>
+      <div class="glassBtn">‹</div>
+      <div class="glassBtn">✓</div>
+    </div>
+    <div class="scene" id="scene">
+      <div class="card" id="card"></div>
+      <div class="guide" id="guide"></div>
+      <!-- tag rows injected here -->
+    </div>
+    <div class="hapticDot" id="hapticDot"></div>
+  </div>
+
+  <aside class="panel">
+    <h2>Stop picker tuning</h2>
+
+    <label>Spring duration <output id="oDur">200 ms</output></label>
+    <input type="range" id="iDur" min="150" max="1200" step="25" value="200">
+
+    <label>Spring bounce <output id="oBounce">0.15</output></label>
+    <input type="range" id="iBounce" min="0" max="0.8" step="0.05" value="0.15">
+
+    <label>Long-press to activate <output id="oHold">300 ms</output></label>
+    <input type="range" id="iHold" min="0" max="600" step="25" value="300">
+
+    <label>Zoom scale <output id="oZoom">1.6×</output></label>
+    <input type="range" id="iZoom" min="1.2" max="2.2" step="0.05" value="1.6">
+
+    <label>Others fade to <output id="oDim">0%</output></label>
+    <input type="range" id="iDim" min="0" max="0.5" step="0.05" value="0">
+
+    <label>Drag precision <output id="oPrec">1.0×</output></label>
+    <input type="range" id="iPrec" min="0.3" max="1" step="0.05" value="1">
+
+    <div class="row">
+      <span>Guide line on card</span>
+      <input type="checkbox" id="iGuide" checked>
+    </div>
+    <div class="row">
+      <span>Tick every 1%</span>
+      <input type="checkbox" id="iTicks" checked>
+    </div>
+
+    <div class="hint">
+      <b>Hold</b> a tag (or just <b>drag</b> it vertically) — the whole scene
+      zooms in around it, the hex morphs into the stop’s % position, everything
+      else fades. Drag to move the stop — you can leapfrog other stops (firm
+      thud when you do). Release to spring back, keeping the value. Pressing an
+      overlapping tag lifts it on top. The pulsing dot stands in for haptics.
+    </div>
+  </aside>
+</div>
+
+<script>
+/* ── Geometry, verbatim from the app ─────────────────────────── */
+const CARD = { left: -188, top: 162.67, width: 370, height: 548.66 };
+const TAIL_X = CARD.left + CARD.width - 22;   // 160
+const TAG_W = 57.15, TAG_H = 40;
+
+/* Dawn palette — the “Jun 15” card. */
+let stops = [
+  { hex: 0xA6CADF, loc: 0.065 },
+  { hex: 0xA7CDE0, loc: 0.200 },
+  { hex: 0xBEB7B1, loc: 0.537 },
+  { hex: 0xDA9096, loc: 0.761 },
+  { hex: 0xFF9881, loc: 0.891 },
+  { hex: 0xEFB291, loc: 0.999 },
+];
+
+const hexStr = h => '#' + h.toString(16).toUpperCase().padStart(6, '0');
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+/* The tag outline, verbatim from the Figma SVG, rotated tail-leading
+   exactly as in StopTagShape.swift. */
+const TAG_PATH = `M22 37.8239C22 35.7794 22 34.7571 22.2396 33.8002C22.4521 32.952 22.8021
+32.1443 23.2758 31.4094C23.8103 30.5802 24.5563 29.8813 26.0482 28.4833L33.2482
+21.7372C36.3304 18.8492 37.8716 17.4053 39.6271 16.86C41.1726 16.38 42.8274 16.38 44.3729
+16.86C46.1284 17.4053 47.6696 18.8492 50.7518 21.7372L57.9518 28.4833C59.4437 29.8813
+60.1897 30.5802 60.7242 31.4094C61.1979 32.1443 61.5479 32.952 61.7604 33.8002C62 34.7571
+62 35.7794 62 37.8239L62 60.7272C62 65.2076 62 67.4478 61.1281 69.1591C60.3611 70.6644
+59.1372 71.8883 57.6319 72.6553C55.9206 73.5272 53.6804 73.5272 49.2 73.5272L34.8
+73.5272C30.3196 73.5272 28.0794 73.5272 26.3681 72.6553C24.8628 71.8883 23.6389 70.6644
+22.8719 69.1591C22 67.4478 22 65.2076 22 60.7272Z`;
+
+/* ── DOM setup ───────────────────────────────────────────────── */
+const phone = document.getElementById('phone');
+const scene = document.getElementById('scene');
+const card = document.getElementById('card');
+const guide = document.getElementById('guide');
+const header = document.getElementById('header');
+const hapticDot = document.getElementById('hapticDot');
+
+function renderGradient() {
+  // Sort a copy: stops may cross while dragging, CSS wants ascending order.
+  const sorted = [...stops].sort((a, b) => a.loc - b.loc);
+  card.style.background = 'linear-gradient(to bottom, ' +
+    sorted.map(s => `${hexStr(s.hex)} ${(s.loc * 100).toFixed(1)}%`).join(', ') + ')';
+}
+
+function tagTop(loc) {
+  const y = clamp(loc * CARD.height, 20, CARD.height - 20);
+  return CARD.top + y - TAG_H / 2;
+}
+
+const rows = stops.map((stop, i) => {
+  const row = document.createElement('div');
+  row.className = 'tagRow';
+  row.dataset.index = i;
+  row.innerHTML = `
+    <svg width="${TAG_W}" height="${TAG_H}" viewBox="0 0 ${TAG_W} ${TAG_H}">
+      <g transform="matrix(0 -1 1 0 0 40)">
+        <path class="body" d="${TAG_PATH}"/>
+      </g>
+      <!-- swatch in final (rotated) coords: centered, nudged +7.95 like the app -->
+      <rect class="swatch" x="18.71" y="2.725" width="35.63" height="34.55"
+            rx="5" fill="${hexStr(stop.hex)}"/>
+    </svg>
+    <div class="label">
+      <span class="hex">${hexStr(stop.hex)}</span>
+      <span class="pct">${Math.round(stop.loc * 100)}%</span>
+    </div>`;
+  row.style.top = tagTop(stop.loc) + 'px';
+  scene.appendChild(row);
+  return row;
+});
+
+/* Overlapping tags: pressing one lifts it above its neighbors. */
+let zTop = 10;
+renderGradient();
+
+/* Fit the phone to the window; pointer deltas are divided by this. */
+let fitScale = 1;
+function fit() {
+  fitScale = Math.min(1, (innerHeight - 32) / 874);
+  phone.style.transform = `scale(${fitScale})`;
+}
+addEventListener('resize', fit); fit();
+
+/* ── Haptics ─────────────────────────────────────────────────── */
+function haptic(kind) {
+  navigator.vibrate?.(kind === 'thud' ? 18 : 6);
+  hapticDot.className = 'hapticDot';
+  void hapticDot.offsetWidth;          // restart the animation
+  hapticDot.classList.add(kind);
+}
+
+/* ── Tuning panel wiring ─────────────────────────────────────── */
+/* Defaults = the shipped values this prototype produced (Animations.stopGrab). */
+const cfg = { hold: 300, zoom: 1.6, dim: 0, precision: 1, guide: true, ticks: true,
+              dur: 200, bounce: 0.15 };
+
+/* SwiftUI-style .spring(duration:bounce:) rendered as a CSS linear() easing.
+   ζ = 1 − bounce; time is normalized so one perceptual duration = 2π phase. */
+function springEase(bounce) {
+  const zeta = 1 - bounce;
+  const pts = [];
+  const N = 60;
+  const x = u => {
+    if (zeta >= 1) return 1 - Math.exp(-2 * Math.PI * u) * (1 + 2 * Math.PI * u);
+    const wd = Math.sqrt(1 - zeta * zeta);
+    return 1 - Math.exp(-2 * Math.PI * zeta * u) *
+      (Math.cos(2 * Math.PI * wd * u) + (zeta / wd) * Math.sin(2 * Math.PI * wd * u));
+  };
+  const residual = 1 - x(1);   // ease the tail exactly onto 1
+  for (let i = 0; i <= N; i++) {
+    const u = i / N;
+    pts.push((x(u) + residual * u).toFixed(4));
+  }
+  return `linear(${pts.join(',')})`;
+}
+
+function applySpring() {
+  const s = document.documentElement.style;
+  s.setProperty('--spring-dur', cfg.dur + 'ms');
+  s.setProperty('--spring-ease', springEase(cfg.bounce));
+}
+applySpring();
+function bind(id, out, fmt, apply) {
+  const el = document.getElementById(id), o = document.getElementById(out);
+  el.addEventListener('input', () => { apply(parseFloat(el.value)); o.textContent = fmt(parseFloat(el.value)); });
+}
+bind('iDur', 'oDur', v => v + ' ms', v => { cfg.dur = v; applySpring(); });
+bind('iBounce', 'oBounce', v => v.toFixed(2), v => { cfg.bounce = v; applySpring(); });
+bind('iHold', 'oHold', v => v + ' ms', v => cfg.hold = v);
+bind('iZoom', 'oZoom', v => v.toFixed(2).replace(/0$/,'') + '×', v => {
+  cfg.zoom = v; document.documentElement.style.setProperty('--zoom-scale', v);
+});
+bind('iDim', 'oDim', v => Math.round(v * 100) + '%', v => {
+  cfg.dim = v; document.documentElement.style.setProperty('--dim-opacity', v);
+});
+bind('iPrec', 'oPrec', v => v.toFixed(2).replace(/0$/,'') + '×', v => cfg.precision = v);
+document.getElementById('iGuide').addEventListener('change', e => cfg.guide = e.target.checked);
+document.getElementById('iTicks').addEventListener('change', e => cfg.ticks = e.target.checked);
+
+/* ── The gesture ─────────────────────────────────────────────── */
+let drag = null;   // { i, row, pointerId, startY, startLoc, active, holdTimer, lastPct }
+
+function setActive(d) {
+  if (d.active) return;
+  d.active = true;
+  clearTimeout(d.holdTimer);
+  haptic('thud');
+  d.row.classList.remove('pressed');
+  d.row.classList.add('active');
+  rows.forEach(r => { if (r !== d.row) r.classList.add('dimmed'); });
+  header.style.opacity = cfg.dim;
+  /* Zoom the whole scene — card and tag together — anchored at the
+     grabbed stop, so it reads as diving into the sky, not a popup. */
+  const y = CARD.top + clamp(stops[d.i].loc * CARD.height, 20, CARD.height - 20);
+  scene.style.transformOrigin = `${TAIL_X}px ${y}px`;
+  scene.classList.add('zoomed');
+  if (cfg.guide) {
+    positionGuide(stops[d.i].loc);
+    guide.style.opacity = 1;
+  }
+}
+
+function positionGuide(loc) {
+  guide.style.top = (CARD.top + clamp(loc * CARD.height, 0, CARD.height)) + 'px';
+}
+
+function updateStop(d, loc) {
+  const s = stops[d.i];
+  const prev = s.loc;
+  // Free range: stops may jump over each other, only the card ends clamp.
+  s.loc = clamp(loc, 0, 1);
+  const hitEdge = s.loc !== loc;
+
+  d.row.style.top = tagTop(s.loc) + 'px';
+  d.row.querySelector('.pct').textContent = Math.round(s.loc * 100) + '%';
+  positionGuide(s.loc);
+  renderGradient();
+
+  // A firm thud each time we leapfrog a neighboring stop.
+  const crossed = stops.some((o, j) => j !== d.i &&
+    (prev - o.loc) * (s.loc - o.loc) < 0);
+  if (crossed) haptic('thud');
+
+  const pct = Math.round(s.loc * 100);
+  if (cfg.ticks && pct !== d.lastPct) { haptic('tick'); d.lastPct = pct; }
+  if (hitEdge && !d.edgeFelt) { haptic('thud'); d.edgeFelt = true; }
+  if (!hitEdge) d.edgeFelt = false;
+}
+
+function endDrag(d, cancelled) {
+  clearTimeout(d.holdTimer);
+  d.row.classList.remove('pressed');
+  if (d.active) {
+    haptic('tick');
+    d.row.classList.remove('active');
+    rows.forEach(r => r.classList.remove('dimmed'));
+    header.style.opacity = 1;
+    guide.style.opacity = 0;
+    scene.classList.remove('zoomed');   // spring the whole scene back
+  }
+  drag = null;
+}
+
+rows.forEach((row, i) => {
+  row.addEventListener('pointerdown', e => {
+    if (drag) return;
+    e.preventDefault();
+    row.setPointerCapture(e.pointerId);
+    row.style.zIndex = ++zTop;   // lift above any overlapping neighbor
+    drag = {
+      i, row,
+      pointerId: e.pointerId,
+      startY: e.clientY,
+      startLoc: stops[i].loc,
+      active: false,
+      lastPct: Math.round(stops[i].loc * 100),
+      edgeFelt: false,
+    };
+    row.classList.add('pressed');
+    drag.holdTimer = setTimeout(() => drag && setActive(drag), cfg.hold);
+  });
+
+  row.addEventListener('pointermove', e => {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    const dy = (e.clientY - drag.startY) / fitScale;
+    if (!drag.active) {
+      if (Math.abs(dy) > 8) setActive(drag);   // “or just drag it”
+      else return;
+    }
+    // Divide by the zoom: the finger stays glued to the magnified stop,
+    // which naturally makes adjustment finer while zoomed in.
+    updateStop(drag, drag.startLoc + (dy * cfg.precision) / (CARD.height * cfg.zoom));
+  });
+
+  const up = e => {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    endDrag(drag, false);
+  };
+  row.addEventListener('pointerup', up);
+  row.addEventListener('pointercancel', up);
+});
+</script>
+</body>
+</html>

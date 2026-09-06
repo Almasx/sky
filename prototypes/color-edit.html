@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Sky — color edit interaction prototype</title>
+<style>
+  :root {
+    --pop: cubic-bezier(.34, 1.56, .64, 1);
+    --settle: cubic-bezier(.22, 1, .36, 1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    background: #d8d8d8;
+    font-family: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif;
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+    touch-action: none;
+  }
+
+  .stage {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 28px;
+  }
+
+  /* ── Phone ──────────────────────────────────────────────────── */
+
+  .phone {
+    position: relative;
+    width: 402px; height: 874px;
+    background: #EEEEEE;
+    border-radius: 60px;
+    overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,.25);
+    transform-origin: center;
+    flex: none;
+  }
+
+  .header {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    padding: 24px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 30;
+  }
+  .header .title {
+    position: absolute; left: 0; right: 0;
+    text-align: center;
+    font-size: 24px; font-weight: 700;
+    color: #B4B4B4;
+    pointer-events: none;
+  }
+  .glassBtn {
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    background: rgba(255,255,255,.55);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 4px 14px rgba(0,0,0,.08), inset 0 0 0 .5px rgba(255,255,255,.7);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; color: #8a8a8a;
+    z-index: 1;
+  }
+
+  /* The scene holds the card AND its tags, so they always travel together:
+     tags fade in place, glued to the preview, never floating on their own.
+     Edit mode: card slid to x = −188.  Color mode: the whole scene shifts
+     +204 so the card lands at x = 16 (Figma 152:2332). */
+  .scene {
+    position: absolute;
+    inset: 0;
+    transition: transform var(--spring-dur, .5s) var(--spring-ease, var(--pop));
+  }
+  .phone.coloring .scene { transform: translate(var(--slide-x, 204px), var(--shift-y, 0px)); }
+
+  /* Card, exactly the app geometry: 370×548.66, corner 55.
+     The aspect ratio is deliberate and never changes — when a low stop would
+     hide behind the sheet, the whole scene rides up (--shift-y) instead. */
+  .card {
+    position: absolute;
+    width: 370px; height: 548.66px;
+    left: -188px; top: 162.67px;
+    border-radius: 55px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.18);
+  }
+
+  /* Guide line: where the edited stop sits on the full-width card. */
+  .guide {
+    position: absolute;
+    left: -188px; width: 370px;
+    height: 2px;
+    background: rgba(255,255,255,.9);
+    mix-blend-mode: overlay;
+    box-shadow: 0 0 0 .5px rgba(0,0,0,.15);
+    opacity: 0;
+    transition: opacity .2s;
+    z-index: 5;
+    pointer-events: none;
+  }
+  .guide .pct {
+    position: absolute;
+    left: 14px; top: -40px;
+    padding: 4px 12px;
+    border-radius: 14px;
+    background: rgba(255,255,255,.85);
+    backdrop-filter: blur(8px);
+    font-size: 17px; font-weight: 700;
+    color: #5C5C5C;
+    font-variant-numeric: tabular-nums;
+    box-shadow: 0 4px 10px rgba(0,0,0,.12);
+  }
+  .phone.coloring .tagRow.editing { cursor: grab; }
+  .rowHidden { display: none !important; }
+
+  /* Interactive scrub: the pointer owns every position, no transitions. */
+  .phone.scrubbing .scene,
+  .phone.scrubbing .sheet,
+  .phone.scrubbing .tagRow,
+  .phone.scrubbing .label { transition: none; }
+  .tagRow.noTrans { transition: none !important; }
+
+  /* ── Stop tags (edit mode) ──────────────────────────────────── */
+
+  .tagRow {
+    position: absolute;
+    left: 160px;                       /* tail tip = card right − 22 */
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    height: 40px;
+    cursor: pointer;
+    z-index: 10;
+    touch-action: none;
+    transition:
+      left var(--spring-dur, .5s) var(--spring-ease, var(--pop)),
+      top var(--spring-dur, .5s) var(--spring-ease, var(--pop)),
+      opacity .35s var(--settle),
+      transform .15s var(--settle);
+  }
+  .tagRow.pressed { transform: scale(.94); }
+
+  /* Color mode: tags ride the scene, so they fade in place beside the card.
+     The touched tag keeps its left (160): its tail tip stays glued to the
+     card's right edge, which lands at screen x = 386 after the scene shift,
+     so the tail wedge peeks in the 16px gutter — exactly the Figma. */
+  .phone.coloring .tagRow          { opacity: 0; pointer-events: none; }
+  .phone.coloring .tagRow.editing  { opacity: 1; pointer-events: auto; }
+  .phone.coloring .tagRow.editing .label { opacity: 0; }
+
+  .tagRow svg { flex: none; overflow: visible; }
+  .tagRow svg .body {
+    fill: #fff;
+    filter:
+      drop-shadow(0 5.5px 11px rgba(0,0,0,.15))
+      drop-shadow(0 2.75px 5.5px rgba(0,0,0,.05))
+      drop-shadow(0 1.375px 2.75px rgba(0,0,0,.05));
+  }
+  .label {
+    height: 30px;
+    display: flex; align-items: center;
+    font-size: 24px; font-weight: 700;
+    color: #A2A0A0;
+    white-space: nowrap;
+    transition: opacity .3s var(--settle);
+  }
+
+  /* ── Choose-color sheet (Figma 153:227) ─────────────────────── */
+
+  .sheet {
+    position: absolute;
+    left: 6px; right: 6px; bottom: 6px;
+    border-radius: 34px;
+    background: rgba(255,255,255,.68);
+    backdrop-filter: blur(24px) saturate(1.3);
+    -webkit-backdrop-filter: blur(24px) saturate(1.3);
+    box-shadow:
+      0 8px 16px rgba(0,0,0,.05),
+      0 16px 32px rgba(0,0,0,.16),
+      inset 0 0 0 .5px rgba(255,255,255,.7);
+    z-index: 40;
+    transform: translateY(calc(100% + 20px));
+    transition: transform var(--sheet-dur, .5s) var(--sheet-ease, var(--pop));
+    touch-action: none;
+  }
+  .phone.coloring .sheet { transform: none; }
+
+  .sheet .grabber {
+    padding-top: 5px;
+    height: 16px;
+    display: flex; justify-content: center;
+  }
+  .sheet .grabber::before {
+    content: "";
+    width: 36px; height: 5px;
+    border-radius: 3px;
+    background: rgba(0,0,0,.18);
+  }
+
+  .sheet .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px 10px;
+  }
+  .sheet .toolbar .sheetTitle {
+    padding: 0 6px;
+    font-size: 24px; font-weight: 700;
+    color: #5C5C5C;
+  }
+  .sheet .close {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    background: rgba(0,0,0,.07);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 19px; font-weight: 800;
+    color: #5C5C5C;
+    cursor: pointer;
+  }
+  .sheet .close:active { transform: scale(.92); }
+
+  .sheet .rows {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 16px 16px 32px;
+  }
+  .sliderRow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .track {
+    position: relative;
+    flex: 1;
+    height: 44px;
+    border-radius: 22px;
+    cursor: pointer;
+    touch-action: none;
+  }
+  /* Thumb fills the whole 44pt track height; grows past it on hover/drag. */
+  .thumb {
+    position: absolute;
+    top: 0;
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    border: 3px solid #fff;
+    box-shadow: 0 2px 6px rgba(0,0,0,.25), 0 6px 14px rgba(0,0,0,.18);
+    pointer-events: none;
+    transition: transform .15s var(--settle);
+  }
+  .track:hover .thumb,
+  .track.dragging .thumb { transform: scale(var(--thumb-grow, 1.15)); }
+
+  .pill {
+    width: 85px; height: 44px;
+    border-radius: 24px;
+    background: rgba(0,0,0,.1);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; font-weight: 700;
+    color: #5C5C5C;
+    font-variant-numeric: tabular-nums;
+    cursor: ew-resize;
+    touch-action: none;
+  }
+
+  /* ── Haptic indicator ───────────────────────────────────────── */
+
+  .hapticDot {
+    position: absolute;
+    top: 34px; right: 88px;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #4a4a4a;
+    opacity: 0;
+    z-index: 60;
+    pointer-events: none;
+  }
+  .hapticDot.tick { animation: tick .18s ease-out; }
+  .hapticDot.thud { animation: thud .3s ease-out; }
+  @keyframes tick { 0% { opacity: .55; transform: scale(1);   } 100% { opacity: 0; transform: scale(2.4); } }
+  @keyframes thud { 0% { opacity: .9;  transform: scale(1.4); } 100% { opacity: 0; transform: scale(3.6); } }
+
+  /* ── Tuning panel ───────────────────────────────────────────── */
+
+  .panel {
+    width: 260px;
+    background: rgba(255,255,255,.75);
+    backdrop-filter: blur(14px);
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.12);
+    font-family: -apple-system, system-ui, sans-serif;
+    flex: none;
+  }
+  .panel h2 { font-size: 14px; font-weight: 700; color: #555; margin-bottom: 14px; }
+  .panel label { display: block; font-size: 12px; color: #777; margin: 12px 0 4px; }
+  .panel label output { float: right; color: #333; font-variant-numeric: tabular-nums; }
+  .panel input[type=range] { width: 100%; }
+  .panel .row { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; font-size: 12px; color: #777; }
+  .panel .hint {
+    margin-top: 16px; padding-top: 12px;
+    border-top: 1px solid rgba(0,0,0,.08);
+    font-size: 11px; line-height: 1.5; color: #999;
+  }
+  .panel .hint b { color: #666; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="phone" id="phone">
+    <div class="header" id="header">
+      <div class="title">Jun 15</div>
+      <div class="glassBtn" id="backBtn">‹</div>
+      <div class="glassBtn">✓</div>
+    </div>
+    <div class="scene" id="scene">
+      <div class="card" id="card"></div>
+      <div class="guide" id="guide"><div class="pct" id="guidePct">50%</div></div>
+      <!-- tag rows injected here -->
+    </div>
+
+    <div class="sheet" id="sheet">
+      <div class="grabber" id="grabber"></div>
+      <div class="toolbar">
+        <div class="sheetTitle">Choose color</div>
+        <div class="close" id="closeBtn">✕</div>
+      </div>
+      <div class="rows">
+        <div class="sliderRow">
+          <div class="track" id="tHue"><div class="thumb"></div></div>
+          <div class="pill" id="pHue">0</div>
+        </div>
+        <div class="sliderRow">
+          <div class="track" id="tSat"><div class="thumb"></div></div>
+          <div class="pill" id="pSat">100</div>
+        </div>
+        <div class="sliderRow">
+          <div class="track" id="tLig"><div class="thumb"></div></div>
+          <div class="pill" id="pLig">50</div>
+        </div>
+        <div class="sliderRow rowHidden" id="rowPos">
+          <div class="track" id="tPos"><div class="thumb"></div></div>
+          <div class="pill" id="pPos">50</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hapticDot" id="hapticDot"></div>
+  </div>
+
+  <aside class="panel">
+    <h2>Color edit tuning</h2>
+
+    <label>Spring duration <output id="oDur">220 ms</output></label>
+    <input type="range" id="iDur" min="150" max="1200" step="10" value="220">
+
+    <label>Spring bounce <output id="oBounce">0.00</output></label>
+    <input type="range" id="iBounce" min="0" max="0.7" step="0.05" value="0">
+
+    <label>Sheet lag behind card <output id="oLag">60 ms</output></label>
+    <input type="range" id="iLag" min="0" max="300" step="20" value="60">
+
+    <label>Thumb grow on hover/drag <output id="oGrow">1.15×</output></label>
+    <input type="range" id="iGrow" min="1" max="1.5" step="0.05" value="1.15">
+
+    <label>Dismiss drag distance <output id="oDismiss">100 px</output></label>
+    <input type="range" id="iDismiss" min="40" max="250" step="10" value="100">
+
+    <div class="row">
+      <span>Card returns to full width</span>
+      <input type="checkbox" id="iSlide" checked>
+    </div>
+    <div class="row">
+      <span>Hue in degrees (vs 0–100)</span>
+      <input type="checkbox" id="iDeg" checked>
+    </div>
+    <div class="row">
+      <span>Tick haptic on value change</span>
+      <input type="checkbox" id="iTicks" checked>
+    </div>
+    <div class="row">
+      <span>Scrub value pills</span>
+      <input type="checkbox" id="iScrub" checked>
+    </div>
+
+    <label style="margin-top:16px"><b>Move stop while coloring</b></label>
+    <div class="row" style="margin-top:4px">
+      <span>A · Drag the docked tail</span>
+      <input type="radio" name="posMode" value="tail">
+    </div>
+    <div class="row">
+      <span>B · Drag up/down on the card</span>
+      <input type="radio" name="posMode" value="card">
+    </div>
+    <div class="row">
+      <span>C · Position slider in sheet</span>
+      <input type="radio" name="posMode" value="sheet">
+    </div>
+    <div class="row">
+      <span>Off — tail is indicator only (decided)</span>
+      <input type="radio" name="posMode" value="off" checked>
+    </div>
+
+    <div class="hint">
+      <b>Drag</b> a tag vertically to move its stop (label reads out the %).
+      <b>Tap</b> it — the card springs to full width and <b>rides up just
+      enough</b> that the stop clears the sheet (aspect ratio untouched), the
+      tag docks at the right edge tracking its stop, and the <b>Choose
+      color</b> sheet rises. Drag the <b>hue / saturation / lightness</b> sliders — the
+      gradient and the docked tail update live. Drag sideways on a <b>value
+      pill</b> for fine adjustment. While the sheet is up, move the stop with
+      whichever affordance is selected above — a <b>guide line + % bubble</b>
+      on the card shows where it sits. Dismiss by <b>dragging the card left</b>
+      or the <b>grabber down</b>; ✕ and a tap on the tail also close.
+    </div>
+  </aside>
+</div>
+
+<script>
+/* ── Geometry, verbatim from the app ─────────────────────────── */
+const CARD = { editLeft: -188, fullLeft: 16, top: 162.67, width: 370, height: 548.66 };
+const TAG_W = 57.15, TAG_H = 40;
+
+/* Dawn palette — the “Jun 15” card. */
+let stops = [
+  { hex: 0xA6CADF, loc: 0.065 },
+  { hex: 0xA7CDE0, loc: 0.200 },
+  { hex: 0xBEB7B1, loc: 0.537 },
+  { hex: 0xDA9096, loc: 0.761 },
+  { hex: 0xFF9881, loc: 0.891 },
+  { hex: 0xEFB291, loc: 0.999 },
+];
+
+const hexStr = h => '#' + h.toString(16).toUpperCase().padStart(6, '0');
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+/* ── HSL ⇄ hex ───────────────────────────────────────────────── */
+function hexToHsl(hex) {
+  const r = ((hex >> 16) & 255) / 255, g = ((hex >> 8) & 255) / 255, b = (hex & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  const l = (max + min) / 2;
+  if (d === 0) return { h: 0, s: 0, l };
+  const s = d / (1 - Math.abs(2 * l - 1));
+  let h;
+  if (max === r) h = ((g - b) / d + 6) % 6;
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return { h: h * 60, s, l };
+}
+function hslToHex({ h, s, l }) {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let [r, g, b] =
+    h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] :
+    h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  const to255 = v => Math.round((v + m) * 255);
+  return (to255(r) << 16) | (to255(g) << 8) | to255(b);
+}
+const css = ({ h, s, l }) => `hsl(${h.toFixed(1)}, ${(s * 100).toFixed(1)}%, ${(l * 100).toFixed(1)}%)`;
+
+/* The tag outline, verbatim from the Figma SVG (see StopTagShape.swift). */
+const TAG_PATH = `M22 37.8239C22 35.7794 22 34.7571 22.2396 33.8002C22.4521 32.952 22.8021
+32.1443 23.2758 31.4094C23.8103 30.5802 24.5563 29.8813 26.0482 28.4833L33.2482
+21.7372C36.3304 18.8492 37.8716 17.4053 39.6271 16.86C41.1726 16.38 42.8274 16.38 44.3729
+16.86C46.1284 17.4053 47.6696 18.8492 50.7518 21.7372L57.9518 28.4833C59.4437 29.8813
+60.1897 30.5802 60.7242 31.4094C61.1979 32.1443 61.5479 32.952 61.7604 33.8002C62 34.7571
+62 35.7794 62 37.8239L62 60.7272C62 65.2076 62 67.4478 61.1281 69.1591C60.3611 70.6644
+59.1372 71.8883 57.6319 72.6553C55.9206 73.5272 53.6804 73.5272 49.2 73.5272L34.8
+73.5272C30.3196 73.5272 28.0794 73.5272 26.3681 72.6553C24.8628 71.8883 23.6389 70.6644
+22.8719 69.1591C22 67.4478 22 65.2076 22 60.7272Z`;
+
+/* ── DOM setup ───────────────────────────────────────────────── */
+const phone = document.getElementById('phone');
+const scene = document.getElementById('scene');
+const card = document.getElementById('card');
+const sheet = document.getElementById('sheet');
+const hapticDot = document.getElementById('hapticDot');
+
+function renderGradient() {
+  const sorted = [...stops].sort((a, b) => a.loc - b.loc);
+  card.style.background = 'linear-gradient(to bottom, ' +
+    sorted.map(s => `${hexStr(s.hex)} ${(s.loc * 100).toFixed(1)}%`).join(', ') + ')';
+}
+
+function tagTop(loc, H = CARD.height) {
+  const y = clamp(loc * H, 20, H - 20);
+  return CARD.top + y - TAG_H / 2;
+}
+
+/* While coloring, the scene rides up just enough that the edited stop
+   clears the sheet — the card keeps its exact aspect ratio. The shift is
+   recomputed as the stop moves, so it follows the drag (the scene's own
+   spring transition makes it glide rather than jump). */
+const SHIFT_MARGIN = 44;
+let shiftY = 0;
+function updateShift(loc) {
+  const sheetTop = 874 - 6 - sheet.offsetHeight;
+  const stopY = CARD.top + clamp(loc, 0, 1) * CARD.height;
+  shiftY = Math.min(0, sheetTop - SHIFT_MARGIN - stopY);
+  document.documentElement.style.setProperty('--shift-y', shiftY.toFixed(1) + 'px');
+}
+
+const rows = stops.map((stop, i) => {
+  const row = document.createElement('div');
+  row.className = 'tagRow';
+  row.innerHTML = `
+    <svg width="${TAG_W}" height="${TAG_H}" viewBox="0 0 ${TAG_W} ${TAG_H}">
+      <g transform="matrix(0 -1 1 0 0 40)">
+        <path class="body" d="${TAG_PATH}"/>
+      </g>
+      <rect class="swatch" x="18.71" y="2.725" width="35.63" height="34.55"
+            rx="5" fill="${hexStr(stop.hex)}"/>
+    </svg>
+    <div class="label">${hexStr(stop.hex)}</div>`;
+  row.style.top = tagTop(stop.loc) + 'px';
+  scene.appendChild(row);
+  return row;
+});
+renderGradient();
+
+/* Fit the phone to the window. */
+let fitScale = 1;
+function fit() {
+  fitScale = Math.min(1, (innerHeight - 32) / 874);
+  phone.style.transform = `scale(${fitScale})`;
+}
+addEventListener('resize', fit); fit();
+
+/* ── Haptics ─────────────────────────────────────────────────── */
+function haptic(kind) {
+  navigator.vibrate?.(kind === 'thud' ? 18 : 6);
+  hapticDot.className = 'hapticDot';
+  void hapticDot.offsetWidth;
+  hapticDot.classList.add(kind);
+}
+
+/* ── Tuning panel wiring ─────────────────────────────────────── */
+/* Defaults = Animations.editSlide (0.22s, bounce 0): the card's left↔right
+   travel here is the same move as the app's detail↔edit slide, so it reuses
+   that spring verbatim — no new animation constant when porting. */
+/* DECIDED: while the sheet is up the stop is NOT draggable — the tail is an
+   indicator only. The A/B/C experiments stay switchable for reference. */
+const cfg = { dur: 220, bounce: 0, lag: 60, slide: true, deg: true,
+              ticks: true, scrub: true, dismissAt: 100, posMode: 'off' };
+
+/* SwiftUI-style .spring(duration:bounce:) as a CSS linear() easing. */
+function springEase(bounce) {
+  const zeta = 1 - bounce;
+  const pts = [];
+  const N = 60;
+  const x = u => {
+    if (zeta >= 1) return 1 - Math.exp(-2 * Math.PI * u) * (1 + 2 * Math.PI * u);
+    const wd = Math.sqrt(1 - zeta * zeta);
+    return 1 - Math.exp(-2 * Math.PI * zeta * u) *
+      (Math.cos(2 * Math.PI * wd * u) + (zeta / wd) * Math.sin(2 * Math.PI * wd * u));
+  };
+  const residual = 1 - x(1);
+  for (let i = 0; i <= N; i++) {
+    const u = i / N;
+    pts.push((x(u) + residual * u).toFixed(4));
+  }
+  return `linear(${pts.join(',')})`;
+}
+
+function applySpring() {
+  const s = document.documentElement.style;
+  const ease = springEase(cfg.bounce);
+  s.setProperty('--spring-dur', cfg.dur + 'ms');
+  s.setProperty('--spring-ease', ease);
+  /* The sheet starts a touch later than the card — reads as a hand-off. */
+  s.setProperty('--sheet-dur', (cfg.dur + cfg.lag) + 'ms');
+  s.setProperty('--sheet-ease', ease);
+}
+applySpring();
+
+function bind(id, out, fmt, apply) {
+  const el = document.getElementById(id), o = document.getElementById(out);
+  el.addEventListener('input', () => { apply(parseFloat(el.value)); o.textContent = fmt(parseFloat(el.value)); });
+}
+bind('iDur', 'oDur', v => v + ' ms', v => { cfg.dur = v; applySpring(); });
+bind('iBounce', 'oBounce', v => v.toFixed(2), v => { cfg.bounce = v; applySpring(); });
+bind('iLag', 'oLag', v => v + ' ms', v => { cfg.lag = v; applySpring(); });
+bind('iGrow', 'oGrow', v => v.toFixed(2).replace(/0$/,'') + '×', v => {
+  document.documentElement.style.setProperty('--thumb-grow', v);
+});
+bind('iDismiss', 'oDismiss', v => v + ' px', v => cfg.dismissAt = v);
+document.getElementById('iSlide').addEventListener('change', e => {
+  cfg.slide = e.target.checked;
+  document.documentElement.style.setProperty('--slide-x', cfg.slide ? '204px' : '0px');
+});
+document.getElementById('iDeg').addEventListener('change', e => { cfg.deg = e.target.checked; renderSliders(); });
+document.getElementById('iTicks').addEventListener('change', e => cfg.ticks = e.target.checked);
+document.getElementById('iScrub').addEventListener('change', e => cfg.scrub = e.target.checked);
+function setPosMode(mode) {
+  cfg.posMode = mode;
+  document.getElementById('rowPos').classList.toggle('rowHidden', mode !== 'sheet');
+  if (editingIndex !== null) {
+    updateShift(stops[editingIndex].loc);   // option C's extra row makes the sheet taller
+    renderPosSlider();
+  }
+}
+document.querySelectorAll('input[name=posMode]').forEach(r =>
+  r.addEventListener('change', () => setPosMode(r.value)));
+
+/* ── Color edit state ────────────────────────────────────────── */
+let editingIndex = null;   // which stop the sheet is editing
+let hsl = { h: 0, s: 1, l: 0.5 };
+
+const tracks = {
+  h: { el: document.getElementById('tHue'), pill: document.getElementById('pHue') },
+  s: { el: document.getElementById('tSat'), pill: document.getElementById('pSat') },
+  l: { el: document.getElementById('tLig'), pill: document.getElementById('pLig') },
+};
+for (const t of Object.values(tracks)) t.thumb = t.el.querySelector('.thumb');
+
+/* The hue rainbow, verbatim from the Figma fill (12 even stops). */
+const HUE_TRACK = 'linear-gradient(90deg,' +
+  Array.from({ length: 13 }, (_, i) => `hsl(${i * 30},100%,50%) ${(i / 12 * 100).toFixed(2)}%`)
+  .join(',') + ')';
+
+function renderSliders() {
+  const { h, s, l } = hsl;
+  tracks.h.el.style.background = HUE_TRACK;
+  tracks.s.el.style.background =
+    `linear-gradient(90deg, ${css({ h, s: 0, l })}, ${css({ h, s: 1, l })})`;
+  tracks.l.el.style.background =
+    `linear-gradient(90deg, #000, ${css({ h, s, l: 0.5 })}, #fff)`;
+
+  tracks.h.thumb.style.background = css({ h, s: 1, l: 0.5 });
+  tracks.s.thumb.style.background = css(hsl);
+  tracks.l.thumb.style.background = css(hsl);
+
+  const trackW = tracks.h.el.clientWidth || 261;
+  const place = (t, frac) => t.thumb.style.left = (frac * (trackW - 44)) + 'px';
+  place(tracks.h, h / 360);
+  place(tracks.s, s);
+  place(tracks.l, l);
+
+  tracks.h.pill.textContent = cfg.deg ? Math.round(h) : Math.round(h / 3.6);
+  tracks.s.pill.textContent = Math.round(s * 100);
+  tracks.l.pill.textContent = Math.round(l * 100);
+}
+
+function applyColor() {
+  if (editingIndex === null) return;
+  const stop = stops[editingIndex];
+  stop.hex = hslToHex(hsl);
+  renderGradient();
+  const row = rows[editingIndex];
+  row.querySelector('.swatch').setAttribute('fill', hexStr(stop.hex));
+  row.querySelector('.label').textContent = hexStr(stop.hex);
+  renderPosSlider();
+}
+
+/* ── Moving the stop while the sheet is up ───────────────────────
+   Whichever affordance drives it (tail drag, card drag, or the sheet
+   slider), the motion funnels through here: the stop, the docked tail,
+   the gradient, and the guide line + % bubble all move as one. */
+const guide = document.getElementById('guide');
+const guidePct = document.getElementById('guidePct');
+let posDrag = null;   // { lastPct, edgeFelt }
+
+function positionGuide(loc) {
+  guide.style.top = (CARD.top + clamp(loc, 0, 1) * CARD.height) + 'px';
+  guidePct.textContent = Math.round(clamp(loc, 0, 1) * 100) + '%';
+}
+
+function startPosDrag() {
+  posDrag = { lastPct: Math.round(stops[editingIndex].loc * 100), edgeFelt: false };
+  positionGuide(stops[editingIndex].loc);
+  guide.style.opacity = 1;
+}
+
+function movePosTo(loc) {
+  if (posDrag === null || editingIndex === null) return;
+  const s = stops[editingIndex];
+  const clamped = clamp(loc, 0, 1);
+  const hitEdge = clamped !== loc;
+  s.loc = clamped;
+  rows[editingIndex].style.top = tagTop(s.loc) + 'px';
+  positionGuide(s.loc);
+  updateShift(s.loc);
+  renderGradient();
+  renderPosSlider();
+  const pct = Math.round(s.loc * 100);
+  if (cfg.ticks && pct !== posDrag.lastPct) { haptic('tick'); posDrag.lastPct = pct; }
+  if (hitEdge && !posDrag.edgeFelt) { haptic('thud'); posDrag.edgeFelt = true; }
+  if (!hitEdge) posDrag.edgeFelt = false;
+}
+
+function endPosDrag() {
+  posDrag = null;
+  guide.style.opacity = 0;
+}
+
+/* ── Open / close ────────────────────────────────────────────── */
+function openEditor(i) {
+  editingIndex = i;
+  hsl = hexToHsl(stops[i].hex);
+  renderSliders();
+  renderPosSlider();
+  positionGuide(stops[i].loc);
+  updateShift(stops[i].loc);
+  phone.classList.add('coloring');
+  rows[i].classList.add('editing');
+  haptic('thud');
+}
+
+function closeEditor() {
+  if (editingIndex === null) return;
+  shiftY = 0;
+  document.documentElement.style.setProperty('--shift-y', '0px');
+  rows[editingIndex].classList.remove('editing');
+  phone.classList.remove('coloring');
+  editingIndex = null;
+  haptic('tick');
+}
+
+rows.forEach((row, i) => {
+  let t = null;   // pending drag: { y, startLoc, moved, mode: 'pos'|'move', lastPct }
+  row.addEventListener('pointerdown', e => {
+    row.classList.add('pressed');
+    const canPos = editingIndex === i && cfg.posMode === 'tail';   // option A
+    const canMove = editingIndex === null;   // edit mode: drag moves the anchor
+    if (canPos || canMove) {
+      row.setPointerCapture(e.pointerId);
+      t = { y: e.clientY, startLoc: stops[i].loc, moved: false,
+            mode: canPos ? 'pos' : 'move',
+            lastPct: Math.round(stops[i].loc * 100) };
+    }
+  });
+  row.addEventListener('pointermove', e => {
+    if (!t) return;
+    const dy = (e.clientY - t.y) / fitScale;
+    if (!t.moved) {
+      if (Math.abs(dy) < 6) return;   // still a tap until it clearly moves
+      t.moved = true;
+      row.classList.remove('pressed');
+      row.classList.add('noTrans');
+      if (t.mode === 'pos') startPosDrag();
+    }
+    if (t.mode === 'pos') {
+      movePosTo(t.startLoc + dy / CARD.height);
+    } else {
+      // Edit-mode drag: the hex label reads out the position while it moves.
+      const s = stops[i];
+      s.loc = clamp(t.startLoc + dy / CARD.height, 0, 1);
+      row.style.top = tagTop(s.loc) + 'px';
+      renderGradient();
+      const pct = Math.round(s.loc * 100);
+      row.querySelector('.label').textContent = pct + '%';
+      if (cfg.ticks && pct !== t.lastPct) { haptic('tick'); t.lastPct = pct; }
+    }
+  });
+  const finish = isTapEligible => {
+    row.classList.remove('pressed');
+    row.classList.remove('noTrans');
+    if (t) {
+      const wasDrag = t.moved, mode = t.mode;
+      t = null;
+      if (wasDrag) {   // a drag is not a tap
+        if (mode === 'pos') endPosDrag();
+        else row.querySelector('.label').textContent = hexStr(stops[i].hex);
+        return;
+      }
+    }
+    if (!isTapEligible) return;
+    // Docked tail tapped → close; otherwise open this stop.
+    if (editingIndex === i) closeEditor();
+    else if (editingIndex === null) openEditor(i);
+  };
+  row.addEventListener('pointerup', () => finish(true));
+  row.addEventListener('pointercancel', () => finish(false));
+  row.addEventListener('pointerleave', () => {
+    if (!t) row.classList.remove('pressed');
+  });
+});
+document.getElementById('closeBtn').addEventListener('pointerup', closeEditor);
+document.getElementById('backBtn').addEventListener('pointerup', closeEditor);
+
+/* ── Slider dragging ─────────────────────────────────────────── */
+function attachTrack(key, set) {
+  const t = tracks[key];
+  let last = null;
+  t.el.addEventListener('pointerdown', e => {
+    t.el.setPointerCapture(e.pointerId);
+    t.el.classList.add('dragging');
+    last = t.pill.textContent;
+    move(e);
+  });
+  const move = e => {
+    if (!t.el.classList.contains('dragging')) return;
+    const r = t.el.getBoundingClientRect();
+    // 22 = half the 44pt thumb hit area; the thumb center maps to the value.
+    const frac = clamp((e.clientX - r.left - 22 * fitScale) / (r.width - 44 * fitScale), 0, 1);
+    set(frac);
+    applyColor();
+    renderSliders();
+    if (cfg.ticks && t.pill.textContent !== last) { haptic('tick'); last = t.pill.textContent; }
+  };
+  t.el.addEventListener('pointermove', move);
+  const up = () => t.el.classList.remove('dragging');
+  t.el.addEventListener('pointerup', up);
+  t.el.addEventListener('pointercancel', up);
+}
+attachTrack('h', f => hsl.h = f * 360);
+attachTrack('s', f => hsl.s = f);
+attachTrack('l', f => hsl.l = f);
+
+/* ── Pill scrubbing: sideways drag for fine adjustment ───────── */
+function attachPill(key, get, set, max) {
+  const t = tracks[key];
+  let start = null;
+  t.pill.addEventListener('pointerdown', e => {
+    if (!cfg.scrub) return;
+    t.pill.setPointerCapture(e.pointerId);
+    start = { x: e.clientX, v: get() };
+  });
+  t.pill.addEventListener('pointermove', e => {
+    if (!start) return;
+    const prev = t.pill.textContent;
+    set(clamp(start.v + (e.clientX - start.x) / fitScale / 3 * (max / 100), 0, max));
+    applyColor();
+    renderSliders();
+    if (cfg.ticks && t.pill.textContent !== prev) haptic('tick');
+  });
+  const up = () => start = null;
+  t.pill.addEventListener('pointerup', up);
+  t.pill.addEventListener('pointercancel', up);
+}
+attachPill('h', () => hsl.h, v => hsl.h = v, 360);
+attachPill('s', () => hsl.s * 100, v => hsl.s = v / 100, 100);
+attachPill('l', () => hsl.l * 100, v => hsl.l = v / 100, 100);
+
+/* ── Option C: position slider in the sheet ──────────────────────
+   The track is the gradient itself laid on its side, so the thumb
+   literally rides through the sky it's positioned in. */
+const posTrack = { el: document.getElementById('tPos'), pill: document.getElementById('pPos') };
+posTrack.thumb = posTrack.el.querySelector('.thumb');
+
+function renderPosSlider() {
+  if (cfg.posMode !== 'sheet' || editingIndex === null) return;
+  const sorted = [...stops].sort((a, b) => a.loc - b.loc);
+  posTrack.el.style.background = 'linear-gradient(90deg, ' +
+    sorted.map(s => `${hexStr(s.hex)} ${(s.loc * 100).toFixed(1)}%`).join(', ') + ')';
+  posTrack.thumb.style.background = hexStr(stops[editingIndex].hex);
+  const trackW = posTrack.el.clientWidth || 261;
+  posTrack.thumb.style.left = (stops[editingIndex].loc * (trackW - 44)) + 'px';
+  posTrack.pill.textContent = Math.round(stops[editingIndex].loc * 100);
+}
+
+{
+  const t = posTrack;
+  const move = e => {
+    if (!t.el.classList.contains('dragging')) return;
+    const r = t.el.getBoundingClientRect();
+    const frac = clamp((e.clientX - r.left - 22 * fitScale) / (r.width - 44 * fitScale), 0, 1);
+    movePosTo(frac);
+  };
+  t.el.addEventListener('pointerdown', e => {
+    if (editingIndex === null) return;
+    t.el.setPointerCapture(e.pointerId);
+    t.el.classList.add('dragging');
+    startPosDrag();
+    move(e);
+  });
+  t.el.addEventListener('pointermove', move);
+  const up = () => {
+    if (!t.el.classList.contains('dragging')) return;
+    t.el.classList.remove('dragging');
+    endPosDrag();
+  };
+  t.el.addEventListener('pointerup', up);
+  t.el.addEventListener('pointercancel', up);
+}
+
+/* ── Interactive dismissal ───────────────────────────────────────
+   Both gestures — sheet dragged down, card dragged left — scrub the SAME
+   transition: p = 1 is color mode, p = 0 is edit mode. Card, docked tag,
+   fading tags, and sheet all move in lockstep, and springing back or
+   committing plays the same choreography in reverse. */
+const SLIDE = 204;   // scene shift between edit (−188) and full (16) card
+
+function setScrub(p) {
+  const S = cfg.slide ? SLIDE : 0;
+  scene.style.transform =
+    `translate(${(S * p).toFixed(1)}px, ${(shiftY * p).toFixed(1)}px)`;
+  sheet.style.transform = `translateY(${((1 - p) * (sheet.offsetHeight + 26)).toFixed(1)}px)`;
+  rows.forEach((row, j) => {
+    if (j === editingIndex) {
+      // The docked tag stays visible, riding home with the card.
+      row.querySelector('.label').style.opacity = 1 - p;
+    } else {
+      // The others fade in place, glued to the preview.
+      row.style.opacity = 1 - p;
+    }
+  });
+}
+
+function endScrub(close) {
+  phone.classList.remove('scrubbing');
+  scene.style.transform = '';
+  sheet.style.transform = '';
+  rows.forEach(row => {
+    row.style.opacity = '';
+    row.style.left = '';
+    row.querySelector('.label').style.opacity = '';
+  });
+  if (close) { haptic('thud'); closeEditor(); }
+}
+
+/* Sheet dragged down via the grabber → the card scrubs back left. */
+{
+  const grabber = document.getElementById('grabber');
+  let start = null;
+  grabber.addEventListener('pointerdown', e => {
+    if (editingIndex === null) return;
+    grabber.setPointerCapture(e.pointerId);
+    start = e.clientY;
+    phone.classList.add('scrubbing');
+  });
+  grabber.addEventListener('pointermove', e => {
+    if (start === null) return;
+    const dy = Math.max(0, (e.clientY - start) / fitScale);
+    setScrub(1 - clamp(dy / (sheet.offsetHeight + 26), 0, 1));
+  });
+  const up = e => {
+    if (start === null) return;
+    endScrub((e.clientY - start) / fitScale > cfg.dismissAt);
+    start = null;
+  };
+  grabber.addEventListener('pointerup', up);
+  grabber.addEventListener('pointercancel', up);
+}
+
+/* Card dragged left → the sheet sinks in step. In card mode (option B) a
+   vertical drag moves the stop instead — the first clear direction wins. */
+{
+  let drag = null;   // { x, y, axis, dx, startLoc }
+  card.addEventListener('pointerdown', e => {
+    if (editingIndex === null) return;
+    card.setPointerCapture(e.pointerId);
+    drag = { x: e.clientX, y: e.clientY, axis: null, dx: 0,
+             startLoc: stops[editingIndex].loc };
+  });
+  card.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dx = (e.clientX - drag.x) / fitScale;
+    const dy = (e.clientY - drag.y) / fitScale;
+    if (!drag.axis) {
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+      drag.axis = (cfg.posMode === 'card' && Math.abs(dy) > Math.abs(dx)) ? 'y' : 'x';
+      if (drag.axis === 'x') phone.classList.add('scrubbing');
+      else startPosDrag();
+    }
+    if (drag.axis === 'y') {
+      movePosTo(drag.startLoc + dy / CARD.height);
+    } else {
+      // Only leftward motion counts; rightward is rubber-banded to nothing.
+      drag.dx = Math.min(0, dx);
+      setScrub(1 - clamp(-drag.dx / SLIDE, 0, 1));
+    }
+  });
+  const up = () => {
+    if (!drag) return;
+    if (drag.axis === 'y') endPosDrag();
+    else if (drag.axis === 'x') endScrub(-drag.dx > cfg.dismissAt);
+    drag = null;
+  };
+  card.addEventListener('pointerup', up);
+  card.addEventListener('pointercancel', up);
+}
+
+renderSliders();
+</script>
+</body>
+</html>
