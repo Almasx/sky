@@ -392,8 +392,8 @@
 
     <label style="margin-top:16px"><b>Move stop while coloring</b></label>
     <div class="row" style="margin-top:4px">
-      <span>A · Drag the docked tail</span>
-      <input type="radio" name="posMode" value="tail">
+      <span>A · Drag the docked tail (decided)</span>
+      <input type="radio" name="posMode" value="tail" checked>
     </div>
     <div class="row">
       <span>B · Drag up/down on the card</span>
@@ -404,8 +404,8 @@
       <input type="radio" name="posMode" value="sheet">
     </div>
     <div class="row">
-      <span>Off — tail is indicator only (decided)</span>
-      <input type="radio" name="posMode" value="off" checked>
+      <span>Off — tail is indicator only</span>
+      <input type="radio" name="posMode" value="off">
     </div>
 
     <div class="hint">
@@ -546,10 +546,10 @@ function haptic(kind) {
 /* Defaults = Animations.editSlide (0.22s, bounce 0): the card's left↔right
    travel here is the same move as the app's detail↔edit slide, so it reuses
    that spring verbatim — no new animation constant when porting. */
-/* DECIDED: while the sheet is up the stop is NOT draggable — the tail is an
-   indicator only. The A/B/C experiments stay switchable for reference. */
+/* DECIDED: option A — the docked tail is a silent drag handle (the app drops
+   the guide/% text this prototype shows). B/C stay switchable for reference. */
 const cfg = { dur: 220, bounce: 0, lag: 60, slide: true, deg: true,
-              ticks: true, scrub: true, dismissAt: 100, posMode: 'off' };
+              ticks: true, scrub: true, dismissAt: 100, posMode: 'tail' };
 
 /* SwiftUI-style .spring(duration:bounce:) as a CSS linear() easing. */
 function springEase(bounce) {

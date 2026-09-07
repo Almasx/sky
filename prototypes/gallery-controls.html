@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Sky — gallery jiggle mode prototype</title>
+<style>
+  :root {
+    --settle: cubic-bezier(.22, 1, .36, 1);
+    --red: #E5473C;
+    --ang: 1deg; --bob: 0.5px; --sway: 0.5px; --period: 300ms;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    background: #d8d8d8;
+    font-family: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif;
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+    touch-action: none;
+  }
+
+  .stage {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 28px;
+  }
+
+  /* ── Phone ──────────────────────────────────────────────────── */
+
+  .phone {
+    position: relative;
+    width: 402px; height: 874px;
+    background: #EEEEEE;
+    border-radius: 60px;
+    overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,.25);
+    transform-origin: center;
+    flex: none;
+  }
+
+  /* Liquid Glass stand-in: the same look the app gets from .glass. */
+  .glass {
+    background: rgba(255,255,255,.62);
+    backdrop-filter: blur(18px) saturate(1.4);
+    -webkit-backdrop-filter: blur(18px) saturate(1.4);
+    box-shadow:
+      0 6px 20px rgba(0,0,0,.10),
+      inset 0 0 0 .5px rgba(255,255,255,.8),
+      inset 0 1px 0 rgba(255,255,255,.9);
+  }
+  .glassBtn {
+    position: relative;
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: #8a8a8a;
+    cursor: pointer;
+    transition: transform .18s var(--settle);
+  }
+  .glassBtn:active { transform: scale(.92); }
+  .glassBtn svg { width: 24px; height: 24px; position: absolute; }
+
+  /* Every glyph: one family — stroke, round terminals, the tertiary ink. */
+  svg.glyph {
+    stroke: currentColor; fill: none;
+    stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round;
+  }
+
+  /* ── Grid tiles: 177×234, corner 24, the app's gallery cell ─── */
+
+  .grid { position: absolute; inset: 0; }
+  .tile {
+    position: absolute;
+    left: 0; top: 0;
+    width: 177px; height: 234px;
+    will-change: transform;
+    z-index: 10;
+    cursor: pointer;
+    touch-action: none;
+  }
+  /* The wobble lives on an inner wrapper so layout transforms stay clean. */
+  .wob { position: absolute; inset: 0; }
+  .jiggling .wob {
+    animation: jiggle var(--period) ease-in-out infinite;
+    animation-delay: var(--phase, 0ms);
+  }
+  .tile.picked .wob, .tile.leaving .wob { animation: none; }
+  /* The home-screen wobble: a small rotation with a hint of drift, so
+     the tile reads as loose, not as spinning about a pin. */
+  @keyframes jiggle {
+    0%   { transform: rotate(calc(-1 * var(--ang))) translate(calc(-1 * var(--sway)), 0); }
+    25%  { transform: rotate(0deg) translate(0, calc(-1 * var(--bob))); }
+    50%  { transform: rotate(var(--ang)) translate(var(--sway), 0); }
+    75%  { transform: rotate(0deg) translate(0, var(--bob)); }
+    100% { transform: rotate(calc(-1 * var(--ang))) translate(calc(-1 * var(--sway)), 0); }
+  }
+  .face {
+    position: absolute; inset: 0;
+    border-radius: 24px;
+    overflow: hidden;
+  }
+  .face .date {
+    position: absolute; left: 12px; bottom: 15px;
+    font-size: 24px; font-weight: 700;
+    color: #B4B4B4; mix-blend-mode: overlay;
+  }
+  .tile.picked { z-index: 45; cursor: grabbing; }
+  .tile.leaving { pointer-events: none; z-index: 9; }
+
+  /* The delete badge: a small glass disc on the tile's corner. */
+  .badge {
+    position: absolute;
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    left: 8px; top: 8px;
+    display: flex; align-items: center; justify-content: center;
+    color: #4a4a4a;
+    transform: scale(0); opacity: 0;
+    cursor: pointer;
+    transition: background-color .18s, color .18s, box-shadow .18s;
+  }
+  .badge svg { width: 16px; height: 16px; stroke-width: 3.2; }
+  .badge.corner { left: -9px; top: -9px; }
+  .badge.armed { background: var(--red); color: #fff; }
+  .badge:active { filter: brightness(.94); }
+
+  /* ── Bottom buttons: the "+" (→ ✓) and the revert ↺ ─────────── */
+
+  .plusWrap, .revertWrap {
+    position: absolute;
+    bottom: 50px;                      /* home indicator 34 + 16 */
+    z-index: 30;
+  }
+  .plusWrap { right: 20px; }
+  .revertWrap { left: 20px; }
+  #revert { opacity: 0; pointer-events: none; }
+
+  /* ── Haptic indicator ───────────────────────────────────────── */
+
+  .hapticDot {
+    position: absolute;
+    top: 34px; right: 88px;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #4a4a4a;
+    opacity: 0;
+    z-index: 60;
+    pointer-events: none;
+  }
+  .hapticDot.tick { animation: tick .18s ease-out; }
+  .hapticDot.thud { animation: thud .3s ease-out; }
+  @keyframes tick { 0% { opacity: .55; transform: scale(1);   } 100% { opacity: 0; transform: scale(2.4); } }
+  @keyframes thud { 0% { opacity: .9;  transform: scale(1.4); } 100% { opacity: 0; transform: scale(3.6); } }
+
+  /* ── Tuning panel ───────────────────────────────────────────── */
+
+  .panel {
+    width: 290px;
+    max-height: calc(100% - 32px);
+    overflow-y: auto;
+    background: rgba(255,255,255,.75);
+    backdrop-filter: blur(14px);
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.12);
+    font-family: -apple-system, system-ui, sans-serif;
+    flex: none;
+  }
+  .panel h2 { font-size: 14px; font-weight: 700; color: #555; margin-bottom: 6px; }
+  .panel h3 { font-size: 11px; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: .04em; margin: 20px 0 2px; }
+  .panel label { display: block; font-size: 12px; color: #777; margin: 12px 0 4px; }
+  .panel label output { float: right; color: #333; font-variant-numeric: tabular-nums; }
+  .panel input[type=range] { width: 100%; }
+  .panel .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; font-size: 12px; color: #777; }
+  .panel .row select { font-size: 12px; max-width: 160px; }
+  .panel button {
+    margin-top: 16px; width: 100%;
+    padding: 8px; border: 0; border-radius: 10px;
+    background: rgba(0,0,0,.07); color: #444; font-size: 12px; font-weight: 600;
+    cursor: pointer;
+  }
+  .panel .hint {
+    margin-top: 16px; padding-top: 12px;
+    border-top: 1px solid rgba(0,0,0,.08);
+    font-size: 11px; line-height: 1.5; color: #999;
+  }
+  .panel .hint b { color: #666; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="phone" id="phone">
+    <div class="grid" id="grid"></div>
+
+    <div class="revertWrap"><div class="glassBtn glass" id="revert"></div></div>
+    <div class="plusWrap"><div class="glassBtn glass" id="plus"></div></div>
+
+    <div class="hapticDot" id="hapticDot"></div>
+  </div>
+
+  <aside class="panel">
+    <h2>Gallery: jiggle mode</h2>
+
+    <h3>Getting in (hold a tile, or the background)</h3>
+    <label>How long to hold <output id="oHold">450 ms</output></label>
+    <input type="range" id="iHold" min="150" max="1000" step="10" value="450">
+    <div class="row">
+      <span>Tile presses down while holding</span>
+      <input type="checkbox" id="iPressDown" checked>
+    </div>
+    <div class="row">
+      <span>How the grid wakes up</span>
+      <select id="iWake">
+        <option value="all" selected>all at once</option>
+        <option value="ripple">ripples out from the held tile</option>
+      </select>
+    </div>
+    <label>Ripple: spread speed <output id="oRipple">1.2 px/ms</output></label>
+    <input type="range" id="iRipple" min="0.3" max="4" step="0.1" value="1.2">
+
+    <h3>The wobble</h3>
+    <div class="row">
+      <span>Preset</span>
+      <select id="iWobble">
+        <option value="restrained" selected>restrained (today's home screen)</option>
+        <option value="classic">classic (the old, springier shake)</option>
+        <option value="custom">custom</option>
+      </select>
+    </div>
+    <label>Angle <output id="oAng">1.0°</output></label>
+    <input type="range" id="iAng" min="0" max="4" step="0.1" value="1">
+    <label>Period <output id="oPeriod">300 ms</output></label>
+    <input type="range" id="iPeriod" min="120" max="600" step="10" value="300">
+    <label>Bob up and down <output id="oBob">0.5 px</output></label>
+    <input type="range" id="iBob" min="0" max="3" step="0.1" value="0.5">
+    <label>Sway side to side <output id="oSway">0.5 px</output></label>
+    <input type="range" id="iSway" min="0" max="3" step="0.1" value="0.5">
+    <div class="row">
+      <span>Each tile on its own beat</span>
+      <input type="checkbox" id="iPhase" checked>
+    </div>
+
+    <h3>The badge</h3>
+    <div class="row">
+      <span>Glyph</span>
+      <select id="iGlyph">
+        <option value="minus" selected>−</option>
+        <option value="x">✕</option>
+      </select>
+    </div>
+    <div class="row">
+      <span>Where it sits</span>
+      <select id="iBadgePos">
+        <option value="inside" selected>inside the corner</option>
+        <option value="corner">on the corner</option>
+      </select>
+    </div>
+    <label>Size <output id="oBadge">30 px</output></label>
+    <input type="range" id="iBadge" min="22" max="40" step="1" value="30">
+    <label>Pop in: how long <output id="oPopDur">320 ms</output></label>
+    <input type="range" id="iPopDur" min="120" max="700" step="10" value="320">
+    <label>Pop in: how much it overshoots <output id="oPopBounce">0.35</output></label>
+    <input type="range" id="iPopBounce" min="0" max="0.7" step="0.05" value="0.35">
+
+    <h3>Bottom buttons</h3>
+    <label>+ → ✓ morph: how long <output id="oMorphDur">300 ms</output></label>
+    <input type="range" id="iMorphDur" min="120" max="700" step="10" value="300">
+    <label>+ → ✓ morph: how much it overshoots <output id="oMorphBounce">0.20</output></label>
+    <input type="range" id="iMorphBounce" min="0" max="0.6" step="0.05" value="0.2">
+    <div class="row">
+      <span>Revert ↺ (bottom-left) shows</span>
+      <select id="iRevert">
+        <option value="changes" selected>only once something changed</option>
+        <option value="always">the whole time (dimmed when idle)</option>
+      </select>
+    </div>
+    <div class="row">
+      <span>Revert undoes</span>
+      <select id="iScope">
+        <option value="all" selected>everything since you started</option>
+        <option value="step">one step at a time</option>
+      </select>
+    </div>
+
+    <h3>Deleting (tap the badge)</h3>
+    <div class="row">
+      <span>Guard</span>
+      <select id="iConfirm">
+        <option value="undo" selected>none — ↺ brings it back</option>
+        <option value="again">tap again (badge turns red)</option>
+      </select>
+    </div>
+    <div class="row">
+      <span>How the tile goes</span>
+      <select id="iExit">
+        <option value="shrink" selected>shrinks to nothing</option>
+        <option value="dissolve">dissolves in place</option>
+        <option value="drop">drops back and fades</option>
+      </select>
+    </div>
+    <label>How long it takes <output id="oExitDur">260 ms</output></label>
+    <input type="range" id="iExitDur" min="120" max="800" step="10" value="260">
+
+    <h3>Moving tiles (drag one while jiggling)</h3>
+    <label>Picked-up size <output id="oLift">1.050</output></label>
+    <input type="range" id="iLift" min="1" max="1.2" step="0.005" value="1.05">
+    <label>Pick up: how long <output id="oLiftDur">200 ms</output></label>
+    <input type="range" id="iLiftDur" min="120" max="700" step="10" value="200">
+    <label>Others make room: how long <output id="oReflowDur">320 ms</output></label>
+    <input type="range" id="iReflowDur" min="150" max="900" step="10" value="320">
+    <label>Others make room: overshoot <output id="oReflowBounce">0.10</output></label>
+    <input type="range" id="iReflowBounce" min="0" max="0.6" step="0.05" value="0.1">
+    <label>Grid closes up after a delete: delay <output id="oReflowDelay">60 ms</output></label>
+    <input type="range" id="iReflowDelay" min="0" max="500" step="10" value="60">
+
+    <button id="reset">Reset gallery</button>
+
+    <div class="hint">
+      <b>Hold a tile</b> (or the empty background): the grid starts to
+      wobble, a glass − appears on every tile, and the <b>+</b> turns into a
+      <b>✓</b>. Move before the hold lands and nothing happens — that's the
+      scroll. <b>Tap a −</b> to delete; the grid closes up. <b>Drag</b> a tile
+      to move it; the others make room. Once something has changed, a glass
+      <b>↺</b> appears bottom-left to take it back. <b>✓</b> or a tap on the
+      background settles everything. <code>#jiggle</code> in the URL starts
+      in jiggle mode.
+    </div>
+  </aside>
+</div>
+
+<script>
+/* ── Geometry, verbatim from the app ─────────────────────────── */
+/* Two flexible columns, 16pt gutters and margins, 32pt vertical padding
+   under a ~59pt status bar. Cells keep the 177:234 ratio. */
+const CELL = { w: 177, h: 234, gap: 16, left: 16, top: 59 + 32 };
+
+const PAL = {
+  dusk:   [[0x8D909E, 0], [0xB69F99, .485], [0xC8A68F, .680], [0xD4AC77, .838], [0xDE956A, 1]],
+  ember:  [[0x888FA6, 0], [0x9A7A90, .28], [0xC05744, .52], [0xD63C1F, .72], [0xF27615, 1]],
+  dawn:   [[0xA6CADF, .065], [0xA7CDE0, .200], [0xBEB7B1, .537], [0xDA9096, .761], [0xFF9881, .891], [0xEFB291, .999]],
+  night:  [[0x03113A, 0], [0x293EA5, .389], [0x5457E1, .659], [0x9380F9, .861], [0xDE8DED, .963]],
+  sunset: [[0xA6CADF, .065], [0xA7CDE0, .204], [0xDA9096, .748], [0xFF9881, .891], [0xEFB291, .999]],
+};
+/* The design's gallery repeats palettes to fill the grid. */
+const SKIES = [
+  ['July 5', 'dusk'], ['July 3', 'ember'], ['Jun 15', 'dawn'],
+  ['May 12', 'night'], ['July 20', 'sunset'], ['July 18', 'ember'],
+];
+const hexStr = h => '#' + h.toString(16).toUpperCase().padStart(6, '0');
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const gradientCSS = stops => 'linear-gradient(to bottom, ' + stops.map(([h, l]) => `${hexStr(h)} ${(l * 100).toFixed(1)}%`).join(', ') + ')';
+
+const ICON = {
+  plus:   `<svg class="glyph plusG" viewBox="0 0 24 24" style="stroke-width:3"><path d="M12 5v14M5 12h14"/></svg>`,
+  check:  `<svg class="glyph checkG" viewBox="0 0 24 24" style="stroke-width:3"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`,
+  revert: `<svg class="glyph" viewBox="0 0 24 24" style="stroke-width:2.8"><path d="M4 10a8 8 0 1 1 2.3 7M4 10V4.5M4 10h5.5"/></svg>`,
+  minus:  `<svg class="glyph" viewBox="0 0 24 24"><path d="M5 12h14"/></svg>`,
+  x:      `<svg class="glyph" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>`,
+};
+
+/* ── Tuning ──────────────────────────────────────────────────── */
+const cfg = {
+  hold: 450, pressDown: true, pressScale: .965, wake: 'all', ripple: 1.2,
+  ang: 1, period: 300, bob: .5, sway: .5, phase: true,
+  glyph: 'minus', badgePos: 'inside', badge: 30, popDur: 320, popBounce: .35,
+  morphDur: 300, morphBounce: .2, revert: 'changes', scope: 'all',
+  confirm: 'undo', exit: 'shrink', exitDur: 260,
+  liftScale: 1.05, liftDur: 200, reflowDur: 320, reflowBounce: .1, reflowDelay: 60,
+};
+const WOBBLES = {
+  restrained: { iAng: 1,   iPeriod: 300, iBob: .5, iSway: .5 },
+  classic:    { iAng: 1.8, iPeriod: 240, iBob: 1,  iSway: 1 },
+};
+
+/* SwiftUI-style .spring(duration:bounce:) → x(u), u in 0…1, ends at 1. */
+function springFn(bounce) {
+  const zeta = 1 - bounce;
+  const x = u => {
+    if (zeta >= 1) return 1 - Math.exp(-2 * Math.PI * u) * (1 + 2 * Math.PI * u);
+    const wd = Math.sqrt(1 - zeta * zeta);
+    return 1 - Math.exp(-2 * Math.PI * zeta * u) *
+      (Math.cos(2 * Math.PI * wd * u) + (zeta / wd) * Math.sin(2 * Math.PI * wd * u));
+  };
+  const residual = 1 - x(1);
+  return u => u >= 1 ? 1 : x(u) + residual * u;
+}
+const easeIn = u => u * u * (0.6 + 0.4 * u);
+
+/* Animate 0…1 progress; `curve` is a bounce value or a function. Returns a cancel. */
+function animate(dur, curve, set, done) {
+  const f = typeof curve === 'function' ? curve : springFn(curve), t0 = performance.now();
+  let raf;
+  const step = now => {
+    const u = clamp((now - t0) / dur, 0, 1);
+    set(f(u));
+    if (u < 1) raf = requestAnimationFrame(step); else done?.();
+  };
+  raf = requestAnimationFrame(step);
+  return () => cancelAnimationFrame(raf);
+}
+const after = (ms, fn) => { const h = setTimeout(fn, ms); return () => clearTimeout(h); };
+
+/* ── DOM ─────────────────────────────────────────────────────── */
+const $ = id => document.getElementById(id);
+const phone = $('phone'), grid = $('grid'), plus = $('plus'), revertBtn = $('revert'), hapticDot = $('hapticDot');
+plus.innerHTML = ICON.plus + ICON.check;
+revertBtn.innerHTML = ICON.revert;
+const plusG = plus.querySelector('.plusG'), checkG = plus.querySelector('.checkG');
+
+let fitScale = 1;
+function fit() {
+  fitScale = Math.min(1, (innerHeight - 32) / 874);
+  phone.style.transform = `scale(${fitScale})`;
+}
+addEventListener('resize', fit); fit();
+const toPhone = e => {
+  const r = phone.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / fitScale, y: (e.clientY - r.top) / fitScale };
+};
+
+function haptic(kind) {
+  navigator.vibrate?.(kind === 'thud' ? 18 : 6);
+  hapticDot.className = 'hapticDot';
+  void hapticDot.offsetWidth;
+  hapticDot.classList.add(kind);
+}
+
+function applyWobble() {
+  const r = document.documentElement.style;
+  r.setProperty('--ang', cfg.ang + 'deg');
+  r.setProperty('--period', cfg.period + 'ms');
+  r.setProperty('--bob', cfg.bob + 'px');
+  r.setProperty('--sway', cfg.sway + 'px');
+  for (const t of tiles) t.wob.style.setProperty('--phase', cfg.phase ? -(t.phase * cfg.period) + 'ms' : '0ms');
+}
+
+/* ── The grid ────────────────────────────────────────────────── */
+let tiles = [], nextId = 0, picked = null, jiggling = false;
+const slot = i => ({ x: CELL.left + (i % 2) * (CELL.w + CELL.gap), y: CELL.top + Math.floor(i / 2) * (CELL.h + CELL.gap) });
+
+function makeTile(title, pal) {
+  const el = document.createElement('div');
+  el.className = 'tile';
+  el.innerHTML = `
+    <div class="wob">
+      <div class="face" style="background:${gradientCSS(PAL[pal])}"><div class="date">${title}</div></div>
+    </div>
+    <div class="badge glass ${cfg.badgePos}" style="width:${cfg.badge}px;height:${cfg.badge}px">${ICON[cfg.glyph]}</div>`;
+  const t = {
+    id: nextId++, title, pal, el,
+    wob: el.querySelector('.wob'), badge: el.querySelector('.badge'),
+    x: 0, y: 0, dx: 0, dy: 0, press: 1, lift: 0, s: 1, alpha: 1, blur: 0, pop: 0,
+    phase: Math.random(),
+  };
+  attachTile(t);
+  grid.appendChild(el);
+  return t;
+}
+
+function place(t) {
+  const scale = t.press * lerp(1, cfg.liftScale, t.lift) * t.s;
+  t.el.style.transform = `translate(${t.x + t.dx}px, ${t.y + t.dy}px) scale(${scale})`;
+  t.el.style.opacity = t.alpha;
+  t.el.style.filter = t.blur > 0 ? `blur(${t.blur}px)` : '';
+  const l = clamp(t.lift, 0, 1);
+  t.el.querySelector('.face').style.boxShadow = l > 0 ? `0 ${lerp(0, 20, l)}px ${lerp(0, 44, l)}px rgba(0,0,0,${.22 * l})` : 'none';
+}
+function placeBadge(t) {
+  t.badge.style.transform = `scale(${t.pop})`;
+  t.badge.style.opacity = Math.min(1, t.pop * 2);
+  t.badge.style.pointerEvents = t.pop > .8 ? 'auto' : 'none';
+}
+
+/* Every tile springs to its slot; the picked tile is under the finger and stays put. */
+function reflow({ animated = true, delay = 0 } = {}) {
+  tiles.forEach((t, i) => {
+    const s = slot(i);
+    if (t === picked || (t.x === s.x && t.y === s.y)) return;
+    t.cancelMove?.();
+    if (!animated) { t.x = s.x; t.y = s.y; place(t); return; }
+    const x0 = t.x, y0 = t.y;
+    const go = () => { t.cancelMove = animate(cfg.reflowDur, cfg.reflowBounce, v => { t.x = lerp(x0, s.x, v); t.y = lerp(y0, s.y, v); place(t); }); };
+    if (delay) t.cancelMove = after(delay, go); else go();
+  });
+}
+
+function loadGallery() {
+  for (const t of tiles) t.el.remove();
+  for (const t of gone) t.el.remove();
+  gone = []; history = [];
+  tiles = SKIES.map(([title, pal]) => makeTile(title, pal));
+  picked = null;
+  reflow({ animated: false });
+  tiles.forEach(placeBadge);
+  applyWobble();
+  updateRevert();
+}
+
+/* ── Jiggle mode ─────────────────────────────────────────────── */
+let cancelMorph = null, morphT = 0;
+
+/* The "+" becomes a ✓: scale-and-blur crossfade. */
+function morph(to) {
+  cancelMorph?.();
+  const from = morphT;
+  cancelMorph = animate(cfg.morphDur, cfg.morphBounce, v => {
+    morphT = lerp(from, to, v);
+    const m = morphT;
+    // Not a true morph: the plus shrinks and blurs away as the check
+    // sharpens in behind it.
+    plusG.style.transform = `scale(${1 - .6 * m})`;
+    plusG.style.filter = `blur(${6 * m}px)`;
+    plusG.style.opacity = clamp(1 - m * 1.4, 0, 1);
+    checkG.style.transform = `scale(${.4 + .6 * m})`;
+    checkG.style.filter = `blur(${6 * (1 - m)}px)`;
+    checkG.style.opacity = clamp(m * 1.4 - .4, 0, 1);
+  });
+}
+
+function enterJiggle(origin) {
+  if (jiggling) return;
+  jiggling = true;
+  haptic('thud');
+  applyWobble();
+  grid.classList.add('jiggling');
+  // Badges pop in — all at once, or rippling outward from the held tile.
+  const ox = origin ? origin.x + CELL.w / 2 : 201, oy = origin ? origin.y + CELL.h / 2 : 437;
+  for (const t of tiles) {
+    t.cancelPop?.();
+    const d = cfg.wake === 'ripple' ? Math.hypot(t.x + CELL.w / 2 - ox, t.y + CELL.h / 2 - oy) / cfg.ripple : 0;
+    const p0 = t.pop;
+    t.cancelPop = after(d, () => { t.cancelPop = animate(cfg.popDur, cfg.popBounce, v => { t.pop = lerp(p0, 1, v); placeBadge(t); }); });
+  }
+  morph(1);
+  updateRevert();
+}
+
+/* ✓: everything settles and the changes are kept. */
+function exitJiggle() {
+  if (!jiggling) return;
+  jiggling = false;
+  haptic('tick');
+  disarm();
+  grid.classList.remove('jiggling');
+  for (const t of tiles) {
+    t.cancelPop?.();
+    const p0 = t.pop;
+    t.cancelPop = animate(200, 0, v => { t.pop = p0 * (1 - v); placeBadge(t); });
+  }
+  morph(0);
+  for (const t of gone) t.el.remove();      // committed
+  gone = []; history = [];
+  updateRevert();
+}
+plus.addEventListener('click', () => { if (jiggling) exitJiggle(); });
+
+/* ── History: every delete or move is one step back for ↺ ────── */
+let history = [], gone = [], revertShown = false, cancelRevert = null;
+
+function snapshot() { history.push(tiles.slice()); updateRevert(); }
+
+function updateRevert() {
+  const show = jiggling && (cfg.revert === 'always' || history.length > 0);
+  const dim = cfg.revert === 'always' && history.length === 0;
+  revertBtn.style.pointerEvents = show && !dim ? 'auto' : 'none';
+  if (show !== revertShown) {
+    revertShown = show;
+    cancelRevert?.();
+    const o0 = parseFloat(revertBtn.style.opacity || 0);
+    cancelRevert = animate(show ? cfg.morphDur : 200, show ? cfg.morphBounce : 0, v => {
+      const k = show ? lerp(o0, 1, v) : o0 * (1 - v);
+      revertBtn.style.opacity = k * (dim ? .45 : 1);
+      revertBtn.style.transform = `scale(${lerp(.6, 1, k)})`;
+    });
+  } else if (show) {
+    revertBtn.style.opacity = dim ? .45 : 1;
+  }
+}
+
+function revert() {
+  if (!history.length) return;
+  haptic('tick');
+  disarm();
+  const prev = cfg.scope === 'all' ? history[0] : history.pop();
+  if (cfg.scope === 'all') history = [];
+  const back = prev.filter(t => !tiles.includes(t));
+  tiles = prev.slice();
+  gone = gone.filter(t => !back.includes(t));
+  for (const t of back) {
+    // Back from the dead: cancel the exit if it's still playing, then grow in.
+    t.cancelExit?.();
+    Object.assign(t, { dx: 0, dy: 0, blur: 0, lift: 0 });
+    const s = slot(tiles.indexOf(t));
+    t.x = s.x; t.y = s.y;
+    t.el.style.display = '';
+    t.el.classList.remove('leaving');
+    animate(360, .2, v => { t.s = lerp(.8, 1, v); t.alpha = Math.min(1, v * 2); place(t); });
+    t.cancelPop?.();
+    t.cancelPop = animate(cfg.popDur, cfg.popBounce, v => { t.pop = v; placeBadge(t); });
+  }
+  reflow();
+  updateRevert();
+}
+revertBtn.addEventListener('click', revert);
+
+/* ── Touching a tile ─────────────────────────────────────────── */
+let press = null;
+
+function attachTile(t) {
+  t.el.addEventListener('pointerdown', e => {
+    if (press || e.target.closest('.badge') || t.el.classList.contains('leaving')) return;
+    t.el.setPointerCapture(e.pointerId);
+    const p = toPhone(e);
+    press = { t, x0: p.x, y0: p.y, moved: false, dragging: false, timer: null };
+    if (jiggling) return;                                   // already awake: a drag from here moves it
+    press.timer = setTimeout(() => {
+      enterJiggle(t);
+      releasePress(t);
+    }, cfg.hold);
+    if (cfg.pressDown) {
+      t.cancelPress?.();
+      const from = t.press;
+      t.cancelPress = animate(180, 0, v => { t.press = lerp(from, cfg.pressScale, v); place(t); });
+    }
+  });
+  t.el.addEventListener('pointermove', e => {
+    if (!press || press.t !== t) return;
+    const p = toPhone(e);
+    const dx = p.x - press.x0, dy = p.y - press.y0, d = Math.hypot(dx, dy);
+    if (!jiggling) {
+      // Moved before the hold landed: in the app that's the scroll view taking over.
+      if (d > 10 && !press.moved) { press.moved = true; clearTimeout(press.timer); releasePress(t); }
+      return;
+    }
+    if (press.moved) return;
+    if (!press.dragging) {
+      if (d <= 6) return;
+      press.dragging = true;
+      pickUp(t);
+      press.x0 = p.x; press.y0 = p.y;                       // no jump on pickup
+    }
+    t.dx = p.x - press.x0; t.dy = p.y - press.y0;
+    place(t);
+    // The slot nearest the tile's center becomes its new home; the rest make room.
+    const cx = t.x + t.dx + CELL.w / 2, cy = t.y + t.dy + CELL.h / 2;
+    const col = clamp(Math.round((cx - CELL.left - CELL.w / 2) / (CELL.w + CELL.gap)), 0, 1);
+    const row = clamp(Math.round((cy - CELL.top - CELL.h / 2) / (CELL.h + CELL.gap)), 0, Math.ceil(tiles.length / 2) - 1);
+    const target = clamp(row * 2 + col, 0, tiles.length - 1);
+    const from = tiles.indexOf(t);
+    if (target !== from) {
+      tiles.splice(from, 1); tiles.splice(target, 0, t);
+      haptic('tick');
+      reflow();
+    }
+  });
+  const end = () => {
+    if (!press || press.t !== t) return;
+    const p = press; press = null;
+    clearTimeout(p.timer);
+    if (p.dragging) { drop(t); return; }
+    releasePress(t);
+  };
+  t.el.addEventListener('pointerup', end);
+  t.el.addEventListener('pointercancel', end);
+
+  t.badge.addEventListener('click', e => {
+    e.stopPropagation();
+    if (!jiggling) return;
+    if (cfg.confirm === 'undo' || armed === t) { deleteTile(t); return; }
+    disarm();
+    armed = t; t.badge.classList.add('armed'); haptic('tick');
+  });
+}
+
+function releasePress(t) {
+  t.cancelPress?.();
+  const from = t.press;
+  t.cancelPress = animate(250, .1, v => { t.press = lerp(from, 1, v); place(t); });
+}
+
+/* Hold the empty background: same as holding a tile. Tap it: settle. */
+let bgPress = null;
+grid.addEventListener('pointerdown', e => {
+  if (e.target !== grid) return;
+  disarm();
+  if (jiggling) { exitJiggle(); return; }
+  bgPress = { timer: setTimeout(() => { bgPress = null; enterJiggle(null); }, cfg.hold) };
+});
+const endBg = () => { if (bgPress) { clearTimeout(bgPress.timer); bgPress = null; } };
+grid.addEventListener('pointerup', endBg);
+grid.addEventListener('pointercancel', endBg);
+grid.addEventListener('pointermove', endBg);
+
+/* ── Moving a tile ───────────────────────────────────────────── */
+let orderBefore = null;
+function pickUp(t) {
+  picked = t;
+  orderBefore = tiles.slice();
+  disarm();
+  t.el.classList.add('picked');
+  haptic('tick');
+  t.cancelLift?.();
+  const l0 = t.lift;
+  t.cancelLift = animate(cfg.liftDur, .2, v => { t.lift = lerp(l0, 1, v); place(t); });
+}
+
+function drop(t) {
+  // The tile itself springs the last bit into its slot, still on top.
+  const s = slot(tiles.indexOf(t));
+  const x0 = t.x + t.dx, y0 = t.y + t.dy;
+  t.x = x0; t.y = y0; t.dx = t.dy = 0;
+  picked = null;
+  haptic('tick');
+  t.cancelMove?.();
+  t.cancelMove = animate(cfg.reflowDur, cfg.reflowBounce, v => { t.x = lerp(x0, s.x, v); t.y = lerp(y0, s.y, v); place(t); });
+  t.cancelLift?.();
+  const l0 = t.lift;
+  t.cancelLift = animate(cfg.liftDur, 0, v => { t.lift = l0 * (1 - v); place(t); }, () => t.el.classList.remove('picked'));
+  // A move that actually changed the order is one step for ↺.
+  if (orderBefore && orderBefore.some((o, i) => o !== tiles[i])) { history.push(orderBefore); updateRevert(); }
+  orderBefore = null;
+}
+
+/* ── Delete ──────────────────────────────────────────────────── */
+let armed = null;
+function disarm() {
+  if (!armed) return;
+  armed.badge.classList.remove('armed');
+  armed = null;
+}
+
+function deleteTile(t) {
+  haptic('thud');
+  disarm();
+  snapshot();
+  t.el.classList.add('leaving');
+  tiles.splice(tiles.indexOf(t), 1);
+  gone.push(t);
+  t.cancelPop?.(); t.pop = 0; placeBadge(t);
+  t.cancelExit = animate(cfg.exitDur, cfg.exit === 'dissolve' ? 0 : easeIn, v => {
+    switch (cfg.exit) {
+      case 'shrink':   t.s = lerp(1, 0, v); t.alpha = 1 - Math.max(0, v - .8) / .2; break;
+      case 'dissolve': t.s = lerp(1, .9, v); t.blur = 16 * v; t.alpha = 1 - v; break;
+      case 'drop':     t.s = lerp(1, .82, v); t.alpha = 1 - v; break;
+    }
+    place(t);
+  }, () => { t.el.style.display = 'none'; });
+  reflow({ delay: cfg.reflowDelay });
+}
+
+/* ── Panel wiring ────────────────────────────────────────────── */
+function bind(id, out, fmt, apply) {
+  const el = $(id), o = $(out);
+  el.addEventListener('input', () => { apply(parseFloat(el.value)); o.textContent = fmt(parseFloat(el.value)); });
+}
+const check = (id, apply) => $(id).addEventListener('change', e => apply(e.target.checked));
+const pick = (id, apply) => $(id).addEventListener('change', e => apply(e.target.value));
+const ms = v => v + ' ms', px = v => v + ' px';
+const bounceFmt = v => v === 0 ? 'none' : v.toFixed(2);
+const restyleBadges = () => {
+  for (const t of tiles) {
+    t.badge.className = 'badge glass ' + cfg.badgePos + (armed === t ? ' armed' : '');
+    t.badge.style.width = t.badge.style.height = cfg.badge + 'px';
+    t.badge.innerHTML = ICON[cfg.glyph];
+  }
+};
+/* Set a control as if the user had, so its output and cfg follow. */
+function setControl(id, value) {
+  const el = $(id);
+  el.value = value; el.dispatchEvent(new Event('input'));
+}
+
+bind('iHold', 'oHold', ms, v => cfg.hold = v);
+check('iPressDown', v => cfg.pressDown = v);
+pick('iWake', v => cfg.wake = v);
+bind('iRipple', 'oRipple', v => v.toFixed(1) + ' px/ms', v => cfg.ripple = v);
+pick('iWobble', name => { for (const [id, v] of Object.entries(WOBBLES[name] || {})) setControl(id, v); });
+for (const id of ['iAng', 'iPeriod', 'iBob', 'iSway'])
+  $(id).addEventListener('input', e => { if (e.isTrusted) $('iWobble').value = 'custom'; });
+bind('iAng', 'oAng', v => v.toFixed(1) + '°', v => { cfg.ang = v; applyWobble(); });
+bind('iPeriod', 'oPeriod', ms, v => { cfg.period = v; applyWobble(); });
+bind('iBob', 'oBob', v => v.toFixed(1) + ' px', v => { cfg.bob = v; applyWobble(); });
+bind('iSway', 'oSway', v => v.toFixed(1) + ' px', v => { cfg.sway = v; applyWobble(); });
+check('iPhase', v => { cfg.phase = v; applyWobble(); });
+pick('iGlyph', v => { cfg.glyph = v; restyleBadges(); });
+pick('iBadgePos', v => { cfg.badgePos = v; restyleBadges(); });
+bind('iBadge', 'oBadge', px, v => { cfg.badge = v; restyleBadges(); });
+bind('iPopDur', 'oPopDur', ms, v => cfg.popDur = v);
+bind('iPopBounce', 'oPopBounce', bounceFmt, v => cfg.popBounce = v);
+bind('iMorphDur', 'oMorphDur', ms, v => cfg.morphDur = v);
+bind('iMorphBounce', 'oMorphBounce', bounceFmt, v => cfg.morphBounce = v);
+pick('iRevert', v => { cfg.revert = v; updateRevert(); });
+pick('iScope', v => cfg.scope = v);
+pick('iConfirm', v => { cfg.confirm = v; disarm(); });
+pick('iExit', v => cfg.exit = v);
+bind('iExitDur', 'oExitDur', ms, v => cfg.exitDur = v);
+bind('iLift', 'oLift', v => v.toFixed(3), v => { cfg.liftScale = v; if (picked) place(picked); });
+bind('iLiftDur', 'oLiftDur', ms, v => cfg.liftDur = v);
+bind('iReflowDur', 'oReflowDur', ms, v => cfg.reflowDur = v);
+bind('iReflowBounce', 'oReflowBounce', bounceFmt, v => cfg.reflowBounce = v);
+bind('iReflowDelay', 'oReflowDelay', ms, v => cfg.reflowDelay = v);
+$('reset').addEventListener('click', () => { exitJiggle(); loadGallery(); });
+
+morph(0);
+loadGallery();
+
+/* Deep link for screenshots: #jiggle starts with the grid awake. */
+if (location.hash.includes('jiggle')) setTimeout(() => enterJiggle(tiles[2]), 400);
+</script>
+</body>
+</html>

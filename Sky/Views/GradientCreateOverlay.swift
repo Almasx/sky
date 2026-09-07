@@ -14,9 +14,12 @@ import SwiftUI
 struct GradientCreateOverlay: View {
     let sourceFrame: CGRect
     var autoCloseAfter: Double? = nil
+    /// Called with the draft's title and stops when the checkmark is tapped.
+    /// ✕ and flicking the card away discard the draft.
+    var onSave: (String, [SkyStop]) -> Void = { _, _ in }
     let onClosed: () -> Void
 
-    private let draft = SkyGradient.draft()
+    @State private var draft = SkyGradient.draft()
 
     @State private var isExpanded = false
     @State private var cardOpacity: Double = 0
@@ -36,6 +39,8 @@ struct GradientCreateOverlay: View {
     @State private var editedStops: [SkyStop]?
     /// Whole-scene zoom while a stop tag is grabbed.
     @State private var grab = StopGrab()
+    /// Bumps as each added stop lands — fires the landing haptic.
+    @State private var landedStops = 0
     /// The stop whose color is being edited: tapping a tag slides the card
     /// back to full width and raises the Choose-color sheet.
     @State private var colorEdit: ColorEditTarget?
@@ -44,6 +49,9 @@ struct GradientCreateOverlay: View {
     @State private var dockedStop: Int?
 
     private var stops: [SkyStop] { editedStops ?? draft.stops }
+    /// What the card draws: the stops, with any stop being pulled off
+    /// melted into its surroundings.
+    private var displayStops: [SkyStop] { stops.fading(grab.fadingIndex, by: grab.fade) }
 
     var body: some View {
         ZStack {
@@ -55,7 +63,7 @@ struct GradientCreateOverlay: View {
             GeometryReader { proxy in
                 let rect = heroRect(in: proxy.size)
                 GradientCard(
-                    item: SkyGradient(id: draft.id, title: draft.title, stops: stops),
+                    item: SkyGradient(id: draft.id, title: draft.title, stops: displayStops),
                     cornerRadius: 55,
                     labelOpacity: 0,
                     // A circle while tucked inside the button, the detail
@@ -102,6 +110,20 @@ struct GradientCreateOverlay: View {
                 .opacity(1 - backgroundOpacity)
             }
 
+            // The working "+", in the very spot the twin occupies: while the
+            // overlay is open it adds a color; on the way home it fades out
+            // as the twin fades in, so it reads as one button that changed job.
+            if sourceFrame != .zero {
+                GeometryReader { _ in
+                    GlassIconButton(systemName: "plus") { addStop() }
+                        .position(x: sourceFrame.midX, y: sourceFrame.midY)
+                }
+                .ignoresSafeArea()
+                .opacity(chromeOpacity)
+                .opacity(grab.isZoomed || colorEdit != nil ? 0 : 1)
+                .allowsHitTesting(chromeOpacity > 0.5 && !grab.isZoomed && colorEdit == nil)
+            }
+
             header
                 .opacity(chromeOpacity)
                 // The chrome joins the fade-away while a stop is grabbed.
@@ -109,6 +131,8 @@ struct GradientCreateOverlay: View {
         }
         // A soft tap as the card commits either way: into edit mode or back.
         .sensoryFeedback(.impact(flexibility: .soft), trigger: isEditing)
+        // A firm knock as a new stop's tag lands.
+        .sensoryFeedback(.impact(flexibility: .rigid), trigger: landedStops)
         .sensoryFeedback(.impact(flexibility: .soft), trigger: colorEdit?.id)
         // The Choose-color sheet, editing the tapped stop live. Native sheet:
         // detent, grabber, glass and swipe-to-dismiss come from the system.
@@ -160,12 +184,38 @@ struct GradientCreateOverlay: View {
                 HStack {
                     GlassIconButton(systemName: "xmark") { close() }
                     Spacer()
-                    GlassIconButton(systemName: "checkmark") { close() }
+                    GlassIconButton(systemName: "checkmark") {
+                        onSave(draft.title, stops)
+                        close()
+                    }
                 }
             }
             .padding(16)
 
             Spacer()
+        }
+    }
+
+    // MARK: - Adding a color
+
+    /// Figma-style add: a stop appears at the midpoint of the biggest gap,
+    /// in the color already there, its tag sliding in from the right. From
+    /// picture mode the card slides into stops first and the newcomer
+    /// arrives a beat later, so it reads as the thing that just happened.
+    /// The haptic fires when the tag lands, not when it's sent.
+    private func addStop() {
+        let fromPicture = !isEditing
+        if fromPicture {
+            isEditing = true
+            withAnimation(.editSlide) { editProgress = 1 }
+        }
+        Task { @MainActor in
+            if fromPicture { try? await Task.sleep(for: .milliseconds(250)) }
+            withAnimation(.stopEnter) {
+                editedStops = stops.addingStop()
+            }
+            try? await Task.sleep(for: .milliseconds(110))
+            landedStops += 1
         }
     }
 

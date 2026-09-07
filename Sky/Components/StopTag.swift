@@ -21,6 +21,27 @@ enum EditMode {
     /// The tag, its swatch, and its label all ride this one transform as a
     /// single rigid group; nothing scales independently.
     static let grabZoom: CGFloat = 1.25
+
+    // Adding and removing stops, tuned live in prototypes/bottom-bar.html.
+    /// A new tag slides in from this far to the right…
+    static let tagEnterDistance: CGFloat = 80
+    /// …and a removed one flies out this far, past the screen edge.
+    static let tagLeaveDistance: CGFloat = 480
+    /// Pull a tag this far off the card and it lets go.
+    static let removePullDistance: CGFloat = 60
+    /// Magnet feel while attached: how far the tag lags behind the finger.
+    static let removeResistance: CGFloat = 0.4
+
+    // Birth-a-color: touch the empty space beside the card and a new tag
+    // docks onto the edge at that height. Tuned in prototypes/bottom-bar.html.
+    /// Existing tags own this much of the empty space around their row —
+    /// touches there stay quiet rather than birthing a tag on top of one.
+    static let birthKeepClear: CGFloat = 30
+    /// How far right of the card the zone listens.
+    static let birthZoneWidth: CGFloat = 400
+    /// A newborn holds on harder than an established tag: dismissing it
+    /// mid-birth takes a longer pull than removing an existing stop.
+    static let birthLetGo: CGFloat = 60
 }
 
 /// Shared, pre-warmed feedback generators. Creating one per tick causes
@@ -50,6 +71,21 @@ struct StopGrab: Equatable {
     /// Sticky: keeps its last value through the release so the zoom-out
     /// doesn't re-anchor mid-flight.
     var anchor: UnitPoint = .center
+    /// While a tag is being pulled off, its color melts out of the card in
+    /// step with the finger: 0 = fully there, 1 = gone.
+    var fadingIndex: Int?
+    var fade: CGFloat = 0
+}
+
+/// Pull-to-remove state, keyed by stop id so it outlives the stop's removal
+/// (the leaving tag keeps its offset while it flies off).
+struct TagPull: Equatable {
+    var id: SkyStop.ID?
+    /// Where the tag sits relative to its slot.
+    var offset: CGFloat = 0
+    /// How far along toward the let-go point the finger is, 0…1.
+    var progress: CGFloat = 0
+    var detached = false
 }
 
 /// The edit-mode picker column: one tag per gradient stop, hanging off the
@@ -61,6 +97,19 @@ struct StopGrab: Equatable {
 /// % position, everything else fades, and dragging moves the stop through
 /// the gradient — free to leapfrog its neighbors. Release to spring back,
 /// keeping the value.
+///
+/// Pull a tag sideways, away from the card, to remove its stop. It resists
+/// like a magnet while it dims and its color melts out of the sky; at the
+/// let-go point it comes free, and releasing it there sends it off the
+/// edge. Let go early and it snaps back, color and all. The last color only
+/// resists.
+///
+/// Touch the empty space beside the card and a new tag is born: it docks
+/// onto the edge at that height, previewing the color already there — the
+/// sky doesn't change, a handle appears. Slide to place it; release to keep
+/// it. From birth it obeys removal physics, so dismissing is literally the
+/// delete gesture: pull it away and let go. Near an existing tag the space
+/// stays quiet — that neighborhood belongs to the tag.
 struct StopTagColumn: View {
     @Binding var stops: [SkyStop]
     let cardSize: CGSize
@@ -86,11 +135,25 @@ struct StopTagColumn: View {
     /// is already pressed against the card's end.
     @State private var lastTickPercent = 0
     @State private var atEdge = false
+    @State private var pull = TagPull()
+    /// The stop being born from the empty space, while the finger is down.
+    @State private var birthId: SkyStop.ID?
 
     var body: some View {
-        ForEach(stops.indices, id: \.self) { index in
-            let stop = stops[index]
+        ZStack(alignment: .topLeading) {
+            birthZone
+            tagRows
+        }
+        // The zone is wider than the card; without a pinned frame the ZStack
+        // would size to it and the overlay's centering would shift every tag
+        // off its stop.
+        .frame(width: cardSize.width, height: cardSize.height, alignment: .topLeading)
+    }
+
+    private var tagRows: some View {
+        ForEach(Array(stops.enumerated()), id: \.element.id) { index, stop in
             let isGrabbed = grabbedIndex == index && grab.isZoomed
+            let isPulled = pull.id == stop.id
             let isDocked = colorEditIndex == index
             // Keep tags clear of the card's rounded corners.
             let y = min(max(stop.location * cardSize.height, 20), cardSize.height - 20)
@@ -107,11 +170,24 @@ struct StopTagColumn: View {
             .contentShape(Rectangle())
             .gesture(grabGesture(for: index))
             // A gentle press-down while the hold is still deciding.
-            .scaleEffect(grabbedIndex == index && !grab.isZoomed ? 0.96 : 1,
+            .scaleEffect(grabbedIndex == index && !grab.isZoomed && !isPulled && !isDocked
+                         ? 0.96 : 1,
                          anchor: UnitPoint(x: 0, y: 0.5))
             // The docked tag rides the card home at full bloom while the
             // others follow the slide back down to nothing.
             .modifier(TagBloom(progress: isDocked ? 1 : progress))
+            // Pull-to-remove rides on top: the drag offset, and a dimming
+            // that deepens with the pull. A tag still being born is a touch
+            // translucent — a preview until the finger lifts.
+            .offset(x: isPulled ? pull.offset : 0)
+            .opacity(birthId == stop.id ? 0.7 : 1)
+            .opacity(isPulled ? 1 - 0.45 * pull.progress : 1)
+            // A new tag slides in from the right and fades in; a removed one
+            // flies off past the right edge.
+            .transition(.asymmetric(
+                insertion: .offset(x: EditMode.tagEnterDistance).combined(with: .opacity),
+                removal: .offset(x: EditMode.tagLeaveDistance).combined(with: .opacity)
+            ))
             // Pin each row in a card-sized box so its x never depends on the
             // row's own width, then push it to the stop's spot: the tail tip
             // sits 22pt inside the card edge (Figma).
@@ -120,7 +196,84 @@ struct StopTagColumn: View {
             // The other tags fade away while a stop is grabbed.
             .opacity(grab.isZoomed && grabbedIndex != index ? 0 : 1)
             .zIndex(tagZ[index] ?? 0)
-            .allowsHitTesting(progress > 0.95 && colorEditIndex == nil)
+            // While the color sheet is up only the docked tail is live — a
+            // silent handle: drag it to move the stop, nothing else.
+            .allowsHitTesting(isDocked || (progress > 0.95 && colorEditIndex == nil))
+        }
+    }
+
+    // MARK: - Birth-a-color
+
+    /// The empty space beside the card. Sits beneath the tag rows, so
+    /// existing tags always win the touch.
+    private var birthZone: some View {
+        Color.clear
+            .frame(width: EditMode.birthZoneWidth, height: cardSize.height)
+            .contentShape(Rectangle())
+            .offset(x: cardSize.width)
+            .gesture(birthGesture)
+            .allowsHitTesting(progress > 0.95 && colorEditIndex == nil && !grab.isZoomed)
+    }
+
+    /// Zone-local space: x = 0 at the card's trailing edge.
+    private var birthGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                if birthId == nil {
+                    beginBirth(at: value.startLocation)
+                }
+                guard let id = birthId,
+                      let index = stops.firstIndex(where: { $0.id == id }) else { return }
+                // Vertical places it; the swatch previews the color there.
+                let loc = min(max(value.location.y / cardSize.height, 0), 1)
+                stops[index].location = loc
+                stops[index].hex = stops.colorWithout(index, at: loc)
+                // Horizontal is the delete pull, relative to the dock —
+                // with the newborn's longer leash.
+                if abs(value.translation.width) > 4 {
+                    updatePull(index, dx: value.translation.width, letGo: EditMode.birthLetGo)
+                }
+            }
+            .onEnded { _ in
+                guard let id = birthId else { return }
+                // The preview solidifies as the finger lifts.
+                withAnimation(.easeOut(duration: 0.2)) {
+                    birthId = nil
+                }
+                guard let index = stops.firstIndex(where: { $0.id == id }) else { return }
+                if !pull.detached {
+                    Haptics.thud.impactOccurred()
+                }
+                endPull(index)
+            }
+    }
+
+    private func beginBirth(at point: CGPoint) {
+        let loc = min(max(point.y / cardSize.height, 0), 1)
+        // Existing tags own their neighborhood: a newcomer materializing on
+        // top of one reads as a glitch, and its row must stay reachable.
+        let clampedY = { (l: CGFloat) in min(max(l * cardSize.height, 20), cardSize.height - 20) }
+        let y = clampedY(loc)
+        guard !stops.contains(where: { abs(clampedY($0.location) - y) < EditMode.birthKeepClear + 20 })
+        else { return }
+
+        // Born with the color the gradient already shows there, so the sky
+        // doesn't change — a new handle simply appears.
+        let future = stops + [SkyStop(hex: 0, location: loc)]
+        let stop = SkyStop(hex: future.colorWithout(future.count - 1, at: loc), location: loc)
+        stops.append(stop)
+        birthId = stop.id
+        // Docks itself: darts from under the finger onto the card edge.
+        // (Tail tip sits 22pt left of the zone origin; the finger holds the
+        // swatch, ~30pt into the row.)
+        pull = TagPull(id: stop.id, offset: max(0, point.x + 22 - 30))
+        Haptics.thud.impactOccurred()
+        Haptics.warmUp()
+        // Same spring as the "+" entrance — one voice for arriving tags.
+        Task { @MainActor in
+            withAnimation(.stopEnter) {
+                if birthId == stop.id { pull.offset = 0 }
+            }
         }
     }
 
@@ -150,6 +303,19 @@ struct StopTagColumn: View {
     private func grabGesture(for index: Int) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .global)
             .onChanged { value in
+                // The docked tail (color sheet up) is a bare handle: vertical
+                // drag moves the stop — no zoom, no hold, no label, no pull.
+                if colorEditIndex == index {
+                    if grabbedIndex == nil {
+                        grabbedIndex = index
+                        grabStartLocation = stops[index].location
+                        lastTickPercent = Int((stops[index].location * 100).rounded())
+                        atEdge = false
+                        Haptics.warmUp()
+                    }
+                    move(index, to: grabStartLocation + value.translation.height / cardSize.height)
+                    return
+                }
                 if grabbedIndex == nil {
                     withAnimation(.spring(duration: 0.15, bounce: 0)) {
                         grabbedIndex = index
@@ -165,8 +331,21 @@ struct StopTagColumn: View {
                     }
                 }
                 guard grabbedIndex == index else { return }
-                let dy = value.translation.height
+                let dx = value.translation.width, dy = value.translation.height
+                if pull.id == stops[index].id {
+                    updatePull(index, dx: dx)
+                    return
+                }
                 if !grab.isZoomed {
+                    // The first decisive movement picks the job: sideways
+                    // pulls the tag off the card, up/down moves the stop.
+                    if abs(dx) > EditMode.grabSlop && abs(dx) > abs(dy) {
+                        holdTask?.cancel()
+                        holdTask = nil
+                        pull = TagPull(id: stops[index].id)
+                        updatePull(index, dx: dx)
+                        return
+                    }
                     // A decisive drag doesn't wait for the hold.
                     guard abs(dy) > EditMode.grabSlop else { return }
                     activate(index)
@@ -200,7 +379,7 @@ struct StopTagColumn: View {
     private func move(_ index: Int, to raw: CGFloat) {
         let old = stops[index].location
         let new = min(max(raw, 0), 1)
-        stops[index] = SkyStop(hex: stops[index].hex, location: new)
+        stops[index].location = new
 
         // A tick every whole percent…
         let percent = Int((new * 100).rounded())
@@ -229,15 +408,90 @@ struct StopTagColumn: View {
         holdTask?.cancel()
         holdTask = nil
         guard let index = grabbedIndex else { return }
-        if grab.isZoomed {
+        if let id = pull.id, stops.indices.contains(index), stops[index].id == id {
+            endPull(index)
+        } else if grab.isZoomed {
             Haptics.release.impactOccurred()
-        } else {
+        } else if colorEditIndex == nil {
             // Let go before the hold committed and without moving: a tap.
+            // (Docked-tail drags end silently.)
             onTap?(index)
         }
         withAnimation(.stopGrab) {
             grab.isZoomed = false
             grabbedIndex = nil
+        }
+    }
+
+    // MARK: - The pull
+
+    private func updatePull(_ index: Int, dx: CGFloat,
+                            letGo: CGFloat = EditMode.removePullDistance) {
+        let canRemove = stops.count > 1
+        if dx < 0 {
+            pull.offset = 0                              // into the card: a wall
+        } else if !canRemove {
+            pull.offset = dx * 0.25                      // the last color just resists
+        } else {
+            let detached = dx >= letGo
+            if detached != pull.detached {
+                pull.detached = detached
+                if detached {
+                    Haptics.thud.impactOccurred()
+                } else {
+                    Haptics.tick.selectionChanged()
+                }
+            }
+            pull.offset = Self.displacement(dx, letGo: letGo)
+        }
+        pull.progress = canRemove ? min(max(dx / letGo, 0), 1) : 0
+        // The color melts out of the sky in step with the finger, so by the
+        // let-go point it has already visibly gone.
+        grab.fadingIndex = index
+        grab.fade = pull.progress
+    }
+
+    /// Magnet feel: the tag lags further behind the finger the closer it
+    /// gets to the let-go point, then tracks it 1:1 from there. Continuous —
+    /// the only thing that changes at the let-go point is the haptic.
+    private static func displacement(_ dx: CGFloat,
+                                     letGo: CGFloat = EditMode.removePullDistance) -> CGFloat {
+        let r = EditMode.removeResistance
+        guard dx < letGo else { return letGo * (1 - r) + (dx - letGo) }
+        return dx * (1 - r * dx / letGo)
+    }
+
+    private func endPull(_ index: Int) {
+        if pull.detached {
+            // The card already shows the sky without it; only the tag leaves.
+            Haptics.release.impactOccurred()
+            grab.fadingIndex = nil
+            grab.fade = 0
+            withAnimation(.stopLeave) {
+                stops.remove(at: index)
+            } completion: {
+                pull = TagPull()
+            }
+        } else {
+            withAnimation(.stopSnapBack) {
+                pull.offset = 0
+                pull.progress = 0
+            } completion: {
+                pull = TagPull()
+            }
+            // Gradient colors don't ride SwiftUI animations, so the melt is
+            // eased back by hand, in step with the snap.
+            let start = grab.fade
+            Task { @MainActor in
+                let frames = 20
+                for i in 1...frames {
+                    try? await Task.sleep(for: .milliseconds(16))
+                    let t = CGFloat(i) / CGFloat(frames)
+                    grab.fade = start * (1 - t) * (1 - t)
+                }
+                grab.fade = 0
+                grab.fadingIndex = nil
+            }
         }
     }
 

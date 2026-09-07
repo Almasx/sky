@@ -22,12 +22,12 @@ struct ChooseColorSheet: View {
     /// slider fighting the home-indicator swipe.
     static let height: CGFloat = 272
 
-    @State private var hsl: HSLColor
+    @State private var hsb: HSBColor
 
     init(hex: Binding<UInt32>, onClose: @escaping () -> Void) {
         _hex = hex
         self.onClose = onClose
-        _hsl = State(initialValue: HSLColor(hex: hex.wrappedValue))
+        _hsb = State(initialValue: HSBColor(hex: hex.wrappedValue))
     }
 
     var body: some View {
@@ -35,32 +35,31 @@ struct ChooseColorSheet: View {
             toolbar
             VStack(spacing: 20) {
                 row(
-                    fraction: $hsl.hue.fraction(over: 360),
-                    display: $hsl.hue,
+                    fraction: $hsb.hue.fraction(over: 360),
+                    display: $hsb.hue,
                     range: 360,
                     track: Self.hueTrack,
-                    thumb: HSLColor(hue: hsl.hue, saturation: 1, lightness: 0.5).color
+                    thumb: HSBColor(hue: hsb.hue, saturation: 1, brightness: 1).color
                 )
                 row(
-                    fraction: $hsl.saturation,
-                    display: $hsl.saturation.scaled(by: 100),
+                    fraction: $hsb.saturation,
+                    display: $hsb.saturation.scaled(by: 100),
                     range: 100,
                     track: [
-                        HSLColor(hue: hsl.hue, saturation: 0, lightness: hsl.lightness).color,
-                        HSLColor(hue: hsl.hue, saturation: 1, lightness: hsl.lightness).color,
+                        HSBColor(hue: hsb.hue, saturation: 0, brightness: hsb.brightness).color,
+                        HSBColor(hue: hsb.hue, saturation: 1, brightness: hsb.brightness).color,
                     ],
-                    thumb: hsl.color
+                    thumb: hsb.color
                 )
                 row(
-                    fraction: $hsl.lightness,
-                    display: $hsl.lightness.scaled(by: 100),
+                    fraction: $hsb.brightness,
+                    display: $hsb.brightness.scaled(by: 100),
                     range: 100,
                     track: [
                         .black,
-                        HSLColor(hue: hsl.hue, saturation: hsl.saturation, lightness: 0.5).color,
-                        .white,
+                        HSBColor(hue: hsb.hue, saturation: hsb.saturation, brightness: 1).color,
                     ],
-                    thumb: hsl.color
+                    thumb: hsb.color
                 )
             }
             .padding(.horizontal, 16)
@@ -81,8 +80,8 @@ struct ChooseColorSheet: View {
                 to: nil, from: nil, for: nil
             )
         }
-        .onChange(of: hsl) {
-            hex = hsl.hex
+        .onChange(of: hsb) {
+            hex = hsb.hex
         }
         // A tick every whole displayed unit, on any slider.
         .onChange(of: displayedValues) { old, new in
@@ -93,13 +92,13 @@ struct ChooseColorSheet: View {
 
     /// The Figma rainbow track: 12 even hue steps.
     private static let hueTrack: [Color] = (0...12).map {
-        HSLColor(hue: Double($0) * 30, saturation: 1, lightness: 0.5).color
+        HSBColor(hue: Double($0) * 30, saturation: 1, brightness: 1).color
     }
 
     private var displayedValues: [Int] {
-        [Int(hsl.hue.rounded()),
-         Int((hsl.saturation * 100).rounded()),
-         Int((hsl.lightness * 100).rounded())]
+        [Int(hsb.hue.rounded()),
+         Int((hsb.saturation * 100).rounded()),
+         Int((hsb.brightness * 100).rounded())]
     }
 
     private var toolbar: some View {
@@ -222,6 +221,9 @@ private struct ColorSlider: View {
                     .fill(thumb)
                     .overlay(Circle().stroke(.white, lineWidth: 3))
                     .frame(width: 36, height: 36)
+                    // Flatten first, or the ring casts its own shadow inward
+                    // onto the fill; the shadow belongs to the thumb as one.
+                    .compositingGroup()
                     .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
                     .shadow(color: .black.opacity(0.18), radius: 7, y: 3)
                     .scaleEffect(isDragging ? 1.15 : 1)
@@ -240,19 +242,20 @@ private struct ColorSlider: View {
     }
 }
 
-// MARK: - HSL working space
+// MARK: - HSB working space
 
-/// The picker edits in HSL (matching the Figma sliders); stops store hex.
-struct HSLColor: Equatable {
+/// The picker edits in HSB — the same axes as Figma's own color picker, so
+/// values cross-check 1:1 with the design tool; stops store hex.
+struct HSBColor: Equatable {
     /// Degrees, 0–360.
     var hue: Double
     var saturation: Double
-    var lightness: Double
+    var brightness: Double
 
-    init(hue: Double, saturation: Double, lightness: Double) {
+    init(hue: Double, saturation: Double, brightness: Double) {
         self.hue = hue
         self.saturation = saturation
-        self.lightness = lightness
+        self.brightness = brightness
     }
 
     init(hex: UInt32) {
@@ -261,15 +264,15 @@ struct HSLColor: Equatable {
         let b = Double(hex & 0xFF) / 255
         let hi = max(r, g, b), lo = min(r, g, b)
         let d = hi - lo
-        lightness = (hi + lo) / 2
+        brightness = hi
+        saturation = hi == 0 ? 0 : d / hi
         guard d > 0 else {
             hue = 0
-            saturation = 0
             return
         }
-        saturation = d / (1 - abs(2 * lightness - 1))
         switch hi {
-        case r: hue = ((g - b) / d).truncatingRemainder(dividingBy: 6) * 60
+        case r: hue = (((g - b) / d).truncatingRemainder(dividingBy: 6) * 60)
+            .truncatingRemainder(dividingBy: 360)
         case g: hue = ((b - r) / d + 2) * 60
         default: hue = ((r - g) / d + 4) * 60
         }
@@ -277,9 +280,9 @@ struct HSLColor: Equatable {
     }
 
     private var rgb: (Double, Double, Double) {
-        let c = (1 - abs(2 * lightness - 1)) * saturation
+        let c = brightness * saturation
         let x = c * (1 - abs((hue / 60).truncatingRemainder(dividingBy: 2) - 1))
-        let m = lightness - c / 2
+        let m = brightness - c
         let (r, g, b): (Double, Double, Double) = switch hue {
         case ..<60: (c, x, 0)
         case ..<120: (x, c, 0)
@@ -292,8 +295,7 @@ struct HSLColor: Equatable {
     }
 
     var color: Color {
-        let (r, g, b) = rgb
-        return Color(red: r, green: g, blue: b)
+        Color(hue: hue / 360, saturation: saturation, brightness: brightness)
     }
 
     var hex: UInt32 {
