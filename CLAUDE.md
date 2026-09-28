@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Sky is a SwiftUI iOS app (iOS 26 deployment target, iPhone only) for capturing and browsing sky gradients. Pure SwiftUI, no external dependencies, no test targets. Saved skies persist as one JSON file in Application Support (`SkyStore`), seeded on first launch with the five Figma palettes. The UI is implemented from a Figma design — color stops and layout metrics in the code are taken verbatim from the Figma fills.
+Sky is a SwiftUI iOS app (iOS 26 deployment target, iPhone only) for capturing and browsing sky gradients. Pure SwiftUI, no external dependencies, no test targets. Saved skies persist as one JSON file in Application Support (`SkyStore`), seeded on first launch with the five Figma palettes. The UI is implemented from a Figma design — color stops and layout metrics in the code are taken verbatim from the Figma fills. DECIDED: skies blend in Oklab (`Oklab` in `SkyGradient.swift`; the card draws 16 Oklab samples per span and `SkyStop.mix` uses the same math, so adding a stop never changes the sky). Figma can only blend in sRGB, so Figma is the source of truth for stop colors and locations, not for how the gradient looks between them — the in-between midtones are deliberately a little lighter and less gray than Figma's preview. Don't bake samples into the Figma fills.
 
 ## Build & Run
 
