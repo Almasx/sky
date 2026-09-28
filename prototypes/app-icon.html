@@ -162,10 +162,10 @@
       <button data-v="leather">Leather</button>
       <button data-v="glass">Glass</button>
     </div>
-    <label>Grain <output id="oGrain">0.55</output></label>
-    <input type="range" id="iGrain" min="0" max="1.5" step="0.05" value="0.55">
-    <label>Light shaping <output id="oShade">0.80</output></label>
-    <input type="range" id="iShade" min="0" max="1.5" step="0.05" value="0.8">
+    <label>Grain <output id="oGrain">0.00</output></label>
+    <input type="range" id="iGrain" min="0" max="1.5" step="0.05" value="0">
+    <label>Light shaping <output id="oShade">1.20</output></label>
+    <input type="range" id="iShade" min="0" max="1.5" step="0.05" value="1.2">
 
     <h3>Panel</h3>
     <div class="seg" id="frameSeg">
@@ -176,24 +176,34 @@
       <button data-v="deep">Deep</button>
       <button data-v="tan">Tan</button>
     </div>
-    <label>Panel width <output id="oInset">7 %</output></label>
-    <input type="range" id="iInset" min="0" max="26" step="0.5" value="7">
+    <label>Panel width <output id="oInset">9.5 %</output></label>
+    <input type="range" id="iInset" min="0" max="26" step="0.5" value="9.5">
 
     <h3>Window</h3>
     <div class="seg" id="depthSeg">
-      <button data-v="flat">Flat</button>
       <button data-v="well">Well</button>
+      <button data-v="glass">Glass</button>
       <button data-v="plug">Plug</button>
-      <button data-v="glazed">Glazed</button>
+      <button data-v="flat">Flat</button>
     </div>
-    <label>Wall thickness <output id="oWall">9 %</output></label>
-    <input type="range" id="iWall" min="0" max="22" step="0.5" value="9">
-    <label>Opening roundness <output id="oRound">0.62</output></label>
-    <input type="range" id="iRound" min="0" max="1" step="0.02" value="0.62">
-    <label>Light angle <output id="oLight">96°</output></label>
-    <input type="range" id="iLight" min="0" max="360" step="2" value="96">
-    <label>Look off-axis <output id="oPar">0.42</output></label>
-    <input type="range" id="iPar" min="0" max="1" step="0.02" value="0.42">
+    <label>Refraction <output id="oRefract">0.92</output></label>
+    <input type="range" id="iRefract" min="0" max="0.92" step="0.02" value="0.92">
+    <label>Sky in the wall <output id="oBleed">0.50</output></label>
+    <input type="range" id="iBleed" min="0" max="1" step="0.02" value="0.5">
+    <label>Specular <output id="oSpec">1.00</output></label>
+    <input type="range" id="iSpec" min="0" max="1" step="0.05" value="1">
+    <label>Chromatic edge <output id="oChroma">0.12</output></label>
+    <input type="range" id="iChroma" min="0" max="1" step="0.02" value="0.12">
+    <label>Panel frost <output id="oFrost">0.00</output></label>
+    <input type="range" id="iFrost" min="0" max="1" step="0.02" value="0">
+    <label>Wall thickness <output id="oWall">10.5 %</output></label>
+    <input type="range" id="iWall" min="0" max="22" step="0.5" value="10.5">
+    <label>Roundness past concentric <output id="oRound">0.00</output></label>
+    <input type="range" id="iRound" min="0" max="1" step="0.02" value="0">
+    <label>Light angle <output id="oLight">90°</output></label>
+    <input type="range" id="iLight" min="0" max="360" step="2" value="90">
+    <label>Look off-axis <output id="oPar">0.18</output></label>
+    <input type="range" id="iPar" min="0" max="1" step="0.02" value="0.18">
     <label>Wall shading <output id="oDepth">0.85</output></label>
     <input type="range" id="iDepth" min="0" max="1.5" step="0.05" value="0.85">
     <label>Edge highlight <output id="oRim">0.45</output></label>
@@ -202,8 +212,8 @@
     <h3>Overlays</h3>
     <label>Gloss (the old iOS shine) <output id="oGloss">0.00</output></label>
     <input type="range" id="iGloss" min="0" max="1" step="0.05" value="0">
-    <label>Vignette <output id="oVig">0.25</output></label>
-    <input type="range" id="iVig" min="0" max="1" step="0.05" value="0.25">
+    <label>Vignette <output id="oVig">0.40</output></label>
+    <input type="range" id="iVig" min="0" max="1" step="0.05" value="0.4">
 
     <h3>Corner</h3>
     <div class="row">
@@ -214,6 +224,8 @@
       <span>Apple grid over the hero</span>
       <input type="checkbox" id="iGrid">
     </div>
+    <label>Concentric → proportional <output id="oSimilar">1.00</output></label>
+    <input type="range" id="iSimilar" min="0" max="1" step="0.05" value="1">
     <label class="auto">Corner radius <output id="oRadius">13.6 % of w</output></label>
     <input type="range" id="iRadius" min="0" max="50" step="0.5" value="14">
     <label class="auto">Corner smoothing <output id="oSmooth">60 %</output></label>
@@ -228,7 +240,14 @@
     <button class="export" id="export">Download 1024 PNG</button>
 
     <div class="hint">
-      At inset <b>0</b> the sky fills the icon itself: you are zoomed all
+      A thick lens sits in the opening. Across the bezel the sky keeps
+      going but <b>compresses</b>, the way glass squeezes what is behind
+      it — then a wash pulls the wall back toward the panel's own white, so
+      the bending reads as a tint rather than a picture. <b>Sky in the
+      wall</b> is that balance. Roundness <b>0</b> keeps every corner
+      concentric: opening = the icon's corner minus the panel, glass =
+      that minus the wall. <b>Well</b> and <b>plug</b> swap the lens for a
+      milled recess. At panel width <b>0</b> the sky fills the icon itself: you are zoomed all
       the way into the card, so its corner is the icon's corner — the real
       Apple shape, 22.37 % radius at 60 % smoothing, an arc with Béziers
       easing into each edge. <b>Material</b> and <b>depth</b> then shade
@@ -252,30 +271,51 @@ const PALETTES = [
 const P = {
   palette: 3,          // night — most contrast against the panel
   material: 'plastic',
-  grain: 0.55,
-  shade: 0.8,
+  grain: 0,            // plastic, but smooth — no tooth
+  shade: 1.2,
   frame: 'canvas',
 
   // The window. Panel width puts the opening on the grid's first ring;
   // wall is how deep the well runs before it reaches the sky.
-  inset: 7,            // panel width, % of icon
-  wall: 9,             // wall thickness, % of icon
-  roundness: 0.62,     // 0 = concentric with the icon corner, 1 = fully round
-  lightAngle: 96,      // degrees; the direction light travels, 90 = downward
-  parallax: 0.42,      // how far off-axis you look into the well
+  inset: 9.5,          // panel width, % of icon
+  wall: 10.5,          // wall thickness, % of icon
+  roundness: 0,        // 0 = concentric with the icon corner, 1 = fully round
+  lightAngle: 90,      // degrees; the direction light travels, 90 = downward
+  parallax: 0.18,      // how far off-axis you look into the well
   depth: 'well',
   depthAmt: 0.85,
   rim: 0.45,
 
+  // The lens in the opening.
+  refract: 0.92,       // how hard the bezel squeezes the sky
+  bleed: 0.50,         // how much of that squeezed sky survives the wash;
+                       // low keeps the wall the panel's own white
+  specular: 1,
+  chroma: 0.12,
+  frost: 0,            // how much sky the panel itself carries
+
   gloss: 0,            // the old iOS shine, off by default
-  vignette: 0.25,
+  vignette: 0.4,
   concentric: true,
+  similar: 1,          // 0 = constant gap, 1 = every shape a scaled copy
   radius: 14,          // manual override
   smooth: 0.6,         // manual override; 0.6 is Apple's (APPLE_SMOOTHING)
   angle: 0,
   zoom: 1,
   grid: false,         // Apple's template grid over the hero
 };
+/// The dark-appearance variant (iOS hands the system a second icon and
+/// swaps it in dark mode). Same object, different surface: the panel goes
+/// near-black, the outer edge picks up more light so the icon still has a
+/// silhouette against a dark wallpaper, and the vignette comes down —
+/// darkening an already-dark panel only turns it to mud.
+const DARK = {
+  frame: 'black',
+  shade: 0.9,
+  rim: 0.75,
+  vignette: 0.12,
+};
+
 /* ── Color helpers ─────────────────────────────────────────────── */
 const rgb = h => [(h >> 16) & 255, (h >> 8) & 255, h & 255];
 const css = c => `rgb(${c[0]|0},${c[1]|0},${c[2]|0})`;
@@ -402,21 +442,29 @@ const MATERIALS = {
   glass:   { span: 0.3,  noise: 'fine',   amount: 0.12 },
 };
 
+// Tiles are generated at the pixel size they will actually be drawn at, and
+// cached per (material, size). Drawing one 256px tile scaled DOWN to fit
+// instead resamples high-frequency noise, and the aliasing shows up as a
+// crosshatch moiré — worst over flat dark areas like a shaded wall. Scaling
+// a tile up only ever blurs it, so the cap below is safe.
 const TEX_CACHE = new Map();
-function textureTile(kind) {
-  if (TEX_CACHE.has(kind)) return TEX_CACHE.get(kind);
-  const n = 256;
+function textureTile(kind, px) {
+  const n = clamp(Math.round(px), 16, 256);
+  const key = `${kind}:${n}`;
+  if (TEX_CACHE.has(key)) return TEX_CACHE.get(key);
+
   const c = document.createElement('canvas');
   c.width = c.height = n;
   const x = c.getContext('2d');
 
   if (kind === 'mottle') {
     // Low-res blobs, smoothly upscaled — leather grain.
+    const m = Math.max(6, Math.round(n / 10));
     const small = document.createElement('canvas');
-    small.width = small.height = 24;
+    small.width = small.height = m;
     const sx = small.getContext('2d');
-    const img = sx.createImageData(24, 24);
-    for (let i = 0; i < 24 * 24; i++) {
+    const img = sx.createImageData(m, m);
+    for (let i = 0; i < m * m; i++) {
       const v = 128 + (Math.random() - 0.5) * 108;
       img.data.set([v, v, v, 255], i * 4);
     }
@@ -438,16 +486,16 @@ function textureTile(kind) {
     // little per-pixel jitter so the streaks aren't perfectly clean.
     const rows = kind === 'brush' ? Array.from({ length: n }, () => (Math.random() - 0.5) * 44) : null;
     for (let y = 0; y < n; y++) {
-      for (let px = 0; px < n; px++) {
+      for (let px2 = 0; px2 < n; px2++) {
         const d = rows ? rows[y] + (Math.random() - 0.5) * 10
                        : (Math.random() - 0.5) * 34;
         const v = clamp(128 + d, 0, 255);
-        img.data.set([v, v, v, 255], (y * n + px) * 4);
+        img.data.set([v, v, v, 255], (y * n + px2) * 4);
       }
     }
     x.putImageData(img, 0, 0);
   }
-  TEX_CACHE.set(kind, c);
+  TEX_CACHE.set(key, c);
   return c;
 }
 
@@ -497,13 +545,18 @@ function materialLighting(ctx, s) {
 function materialGrain(ctx, s) {
   const m = MATERIALS[P.material];
   if (!m.noise || P.grain <= 0) return;
-  const tile = textureTile(m.noise);
   const span = s * m.span;
   // Below a couple of pixels a tile is just noise on noise — drop it, the
   // way real texture disappears at small sizes.
-  if (span < 3) return;
+  if (span < 4) return;
+
+  const tile = textureTile(m.noise, span);
   const pat = ctx.createPattern(tile, 'repeat');
-  pat.setTransform(new DOMMatrix([span / tile.width, 0, 0, span / tile.height, 0, 0]));
+  // Only correct an upscale (a big span capped to the tile cap). Never a
+  // downscale — that is what produced the moiré.
+  if (span > tile.width + 0.5) {
+    pat.setTransform(new DOMMatrix([span / tile.width, 0, 0, span / tile.height, 0, 0]));
+  }
   ctx.save();
   ctx.globalCompositeOperation = 'overlay';
   ctx.globalAlpha = clamp(P.grain * m.amount, 0, 1);
@@ -511,6 +564,8 @@ function materialGrain(ctx, s) {
   ctx.fillRect(0, 0, s, s);
   ctx.restore();
 }
+
+/* ── The icon ──────────────────────────────────────────────────── */
 
 /// A rounded-rect frame in the icon's own curve, described by numbers so
 /// the well's walls can be interpolated between two of them.
@@ -541,40 +596,47 @@ function wallLight(ctx, cx, cy, theta, flip) {
   return g;
 }
 
-/// The well itself: concentric rings stepping from the opening down to the
-/// glass, each one shaded by the same directional light and darkened a
-/// little more than the last. The rings do the work a normal map would —
-/// depth reads because the wall gets dimmer and the occlusion builds as it
-/// goes in, and because the glass is offset, so one side of the tunnel is
-/// wider than the other exactly the way a real recess looks off-axis.
-// Enough rings that the alpha steps blur into a continuous wall; below
-// about 16 the contours show up as machining lines.
-const WELL_RINGS = 22;
-function drawWell(ctx, s, aperture, glass, theta, flip, amt) {
+/// How many steps to build a glass bezel out of. Each one is a full fill
+/// laid over the last, so a 29px icon needs far fewer than the 1024 master.
+const wallSteps = s => clamp(Math.round(s / 11), 5, 30);
+
+/// The region between the opening and the glass.
+function bezelRegion(aperture, glass) {
+  const r = new Path2D();
+  r.addPath(boxPath(aperture));
+  r.addPath(boxPath(glass));
+  return r;
+}
+
+/// Depth, in one fill: the glass shape casts a shadow OUTWARD onto the
+/// wall. The shape itself is clipped away and only its shadow lands, so
+/// the darkening hugs the sill and follows the corner exactly — no stack
+/// of rings, and therefore no antialiased seams between them.
+function sillOcclusion(ctx, aperture, glass, wall, amt) {
+  if (amt <= 0 || wall <= 0) return;
+  ctx.save();
+  ctx.clip(bezelRegion(aperture, glass), 'evenodd');
+  ctx.shadowColor = `rgba(0,0,0,${clamp(amt, 0, 0.9)})`;
+  ctx.shadowBlur = wall * 1.6;
+  ctx.fillStyle = '#000';
+  ctx.fill(boxPath(glass));
+  ctx.restore();
+}
+
+/// A milled recess: one directional pass for which way the wall faces, one
+/// occlusion pass for how deep it sits. Two fills, not a stack of rings.
+function drawWell(ctx, s, aperture, glass, wall, theta, flip, amt) {
   if (amt <= 0) return;
-  const dirG = wallLight(ctx, s / 2, s / 2, theta, flip);
+  ctx.save();
+  ctx.clip(bezelRegion(aperture, glass), 'evenodd');
+  ctx.globalAlpha = clamp(amt, 0, 1);
+  ctx.fillStyle = wallLight(ctx, s / 2, s / 2, theta, flip);
+  ctx.fillRect(0, 0, s, s);
+  ctx.restore();
 
-  for (let i = 0; i < WELL_RINGS; i++) {
-    const t0 = i / WELL_RINGS, t1 = (i + 1) / WELL_RINGS;
-    const ring = new Path2D();
-    ring.addPath(boxPath(lerpBox(aperture, glass, t0)));
-    ring.addPath(boxPath(lerpBox(aperture, glass, Math.min(1, t1 + 0.004))));
+  sillOcclusion(ctx, aperture, glass, wall, amt * 0.55);
 
-    ctx.save();
-    ctx.clip(ring, 'evenodd');
-    // Directional: the lit side stays lit all the way down, just dimmer.
-    ctx.globalAlpha = clamp(amt * (0.34 + 0.66 * (1 - t0)), 0, 1);
-    ctx.fillStyle = dirG;
-    ctx.fillRect(0, 0, s, s);
-    // Occlusion: less of the sky reaches the wall the deeper it sits.
-    ctx.globalAlpha = clamp(amt * 0.40 * t1, 0, 1);
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, s, s);
-    ctx.restore();
-  }
-
-  // The lip where the panel turns into the wall, and the sill where the
-  // wall meets the glass: the two hard edges that tell you it is cut.
+  // The lip where the panel turns in, and the sill where it meets the sky.
   ctx.save();
   ctx.globalAlpha = clamp(amt, 0, 1);
   ctx.lineWidth = Math.max(0.6, s * 0.0045);
@@ -586,7 +648,97 @@ function drawWell(ctx, s, aperture, glass, theta, flip, amt) {
   ctx.restore();
 }
 
-/* ── The icon ──────────────────────────────────────────────────── */
+/// The sky, as a gradient fitted to a box. `squeeze` below 1 runs the same
+/// colours through a shorter distance, which is what a lens edge does to
+/// whatever is behind it.
+function skyGradient(ctx, box, pal, squeeze = 1) {
+  const a = P.angle * Math.PI / 180;
+  const dx = Math.sin(a), dy = Math.cos(a);
+  const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+  const L = (Math.abs(dx) * box.w + Math.abs(dy) * box.h) / 2 * P.zoom * squeeze;
+  const g = ctx.createLinearGradient(cx - dx * L, cy - dy * L, cx + dx * L, cy + dy * L);
+  for (const [hex, l] of pal.stops) g.addColorStop(clamp(l, 0, 1), css(rgb(hex)));
+  return g;
+}
+
+/// The lens, laid down BEFORE the material light hits it, so the wall reads
+/// as the panel's own surface with the sky bending through it rather than
+/// as a dark band pasted on. Across the bezel the sky keeps going but
+/// compresses; a wash of the panel colour then pulls it back, because most
+/// of a thick white bezel is still white — the bending should be a tint.
+///
+/// ARTIFACT NOTE: painted outer-to-inner as NESTED FILLS, each covering
+/// everything inside it, so the next step's antialiased edge composites
+/// over solid colour. Clipping a stack of thin rings instead leaves their
+/// soft edges to meet each other, and the mismatched coverage shows up as
+/// a crosshatch moiré along the curve.
+function glassRefraction(ctx, s, aperture, glass, wall, pal) {
+  const steps = wallSteps(s);
+  ctx.save();
+  ctx.clip(boxPath(aperture));
+  for (let i = 0; i < steps; i++) {
+    const t = i / (steps - 1);           // 0 at the rim, 1 at the glass
+    const box = lerpBox(aperture, glass, t);
+    ctx.fillStyle = skyGradient(ctx, box, pal, 1 - P.refract * (1 - t));
+    ctx.fill(boxPath(box));
+  }
+  ctx.restore();
+
+  if (P.bleed < 1) {
+    ctx.save();
+    ctx.clip(bezelRegion(aperture, glass), 'evenodd');
+    ctx.globalAlpha = clamp(1 - P.bleed, 0, 1);
+    ctx.fillStyle = css(frameColor(pal));
+    ctx.fillRect(0, 0, s, s);
+    ctx.restore();
+  }
+
+  sillOcclusion(ctx, aperture, glass, wall, 0.30 * P.depthAmt);
+}
+
+/// The finish, after the material: specular along the lit rim, a fainter
+/// bounce opposite, and an optional chromatic split. Kept out of the pass
+/// above so grain and light shaping never soften these.
+function glassFinish(ctx, s, aperture, glass, theta) {
+  if (P.specular > 0) {
+    ctx.save();
+    ctx.clip(bezelRegion(aperture, glass), 'evenodd');
+    ctx.globalAlpha = clamp(P.specular, 0, 1);
+    ctx.fillStyle = wallLight(ctx, s / 2, s / 2, theta + Math.PI, false);
+    ctx.fillRect(0, 0, s, s);
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalAlpha = clamp(P.specular, 0, 1);
+    ctx.lineWidth = Math.max(0.7, s * 0.006);
+    ctx.strokeStyle = wallLight(ctx, s / 2, s / 2, theta + Math.PI, false);
+    ctx.stroke(boxPath(aperture));
+    ctx.globalAlpha = clamp(P.specular * 0.5, 0, 1);
+    ctx.lineWidth = Math.max(0.6, s * 0.0035);
+    ctx.strokeStyle = wallLight(ctx, s / 2, s / 2, theta, false);
+    ctx.stroke(boxPath(glass));
+    ctx.restore();
+  }
+
+  if (P.chroma > 0) {
+    const off = s * 0.0035 * P.chroma;
+    ctx.save();
+    ctx.clip(bezelRegion(aperture, glass), 'evenodd');
+    ctx.globalCompositeOperation = 'screen';
+    ctx.globalAlpha = clamp(0.45 * P.chroma, 0, 1);
+    ctx.lineWidth = Math.max(0.6, s * 0.004);
+    for (const [dx, dy, tint] of [[-off, -off, '255,90,120'], [off, off, '90,150,255']]) {
+      ctx.save();
+      ctx.translate(dx, dy);
+      ctx.strokeStyle = `rgba(${tint},0.9)`;
+      ctx.stroke(boxPath(aperture));
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+}
+
+
 
 /// The three shapes the icon is built from, as plain numbers.
 ///   mask     the icon itself, Apple's squircle
@@ -595,16 +747,37 @@ function drawWell(ctx, s, aperture, glass, theta, flip, amt) {
 /// The glass is shifted along the light, so you look slightly across the
 /// opening instead of straight down it — one wall comes out wider than the
 /// one facing it, which is what makes a recess read as a recess.
+/// The radius for a shape sitting `gap` inside another one. Two rules
+/// disagree here, and the difference is the whole argument:
+///
+///   CONCENTRIC   r = R − gap. A constant gap all the way round, which is
+///                what an offset curve really does — but each nesting eats
+///                a fixed amount, so by the second one the corner is spent
+///                and the shape reads as a rectangle.
+///   PROPORTIONAL r = R × (inner width / outer width). Every shape is a
+///                scaled copy of the icon, so the corner character survives
+///                any number of nestings.
+///
+/// With a thin wall the two nearly agree. With a thick one, concentric left
+/// the glass at 4 % of its own width — visually square — so this blends.
+function nestedRadius(outerR, outerW, innerW, gap, similar) {
+  const concentric = Math.max(0, outerR - gap);
+  const proportional = outerW > 0 ? outerR * (innerW / outerW) : 0;
+  return concentric + (proportional - concentric) * similar;
+}
+
+/// The three shapes the icon is built from, as plain numbers.
 function layout(s) {
   const panel = s * P.inset / 100;
   const wall = s * P.wall / 100;
+  const k = P.concentric ? APPLE_SMOOTHING : P.smooth;
+  const sim = P.similar;
 
   const aw = s - panel * 2;
-  // Concentric with the icon's own corner, then opened up toward a full
-  // round by `roundness` — an aircraft window is nearly all corner.
-  const concentric = Math.max(0, s * MASK_R - panel);
-  const base = P.concentric ? concentric : aw * P.radius / 100;
-  const k = P.concentric ? APPLE_SMOOTHING : P.smooth;
+  const base = P.concentric
+    ? nestedRadius(s * MASK_R, s, aw, panel, sim)
+    : aw * P.radius / 100;
+  // …then opened further toward a full round by `roundness`.
   const ar = clamp(base + (aw / 2 - base) * P.roundness, 0, aw / 2);
   const aperture = { x: panel, y: panel, w: aw, h: aw, r: ar, k };
 
@@ -615,11 +788,12 @@ function layout(s) {
     x: panel + wall + Math.cos(theta) * shift,
     y: panel + wall + Math.sin(theta) * shift,
     w: gw, h: gw,
-    r: Math.max(0, ar - wall),
+    r: clamp(nestedRadius(ar, aw, gw, wall, sim), 0, gw / 2),
     k,
   };
   return { panel, wall, aperture, glass, theta };
 }
+
 
 function drawIcon(ctx, s, pal, masked) {
   ctx.save();
@@ -640,44 +814,42 @@ function drawIcon(ctx, s, pal, masked) {
   // 2. The sky, at the bottom of the well.
   ctx.save();
   ctx.clip(glassPath);
-  const a = P.angle * Math.PI / 180;
-  const dx = Math.sin(a), dy = Math.cos(a);
-  const L = (Math.abs(dx) * glass.w + Math.abs(dy) * glass.h) / 2 * P.zoom;
-  const cx = glass.x + glass.w / 2, cy = glass.y + glass.h / 2;
-  const g = ctx.createLinearGradient(cx - dx * L, cy - dy * L, cx + dx * L, cy + dy * L);
-  for (const [hex, l] of pal.stops) g.addColorStop(clamp(l, 0, 1), css(rgb(hex)));
-  ctx.fillStyle = g;
-  ctx.fillRect(glass.x - s, glass.y - s, glass.w + 2 * s, glass.h + 2 * s);
+  ctx.fillStyle = skyGradient(ctx, glass, pal);
+  ctx.fillRect(0, 0, s, s);
   ctx.restore();
 
-  // 3. The material, over the whole object — one surface catching one
+  // 3. What fills the opening around the sky: a lens, or a milled well.
+  // It goes under the material so the wall ends up reading as the panel's
+  // own surface, lit by the same light, rather than as a pasted-on band.
+  if (wall > 0 && P.depth !== 'flat') {
+    if (P.depth === 'glass') {
+      glassRefraction(ctx, s, aperture, glass, wall, pal);
+    } else {
+      drawWell(ctx, s, aperture, glass, wall, theta, plug, d);
+      if (!plug) {
+        innerShadow(ctx, glassPath, s * 0.05 * d, 0, `rgba(0,0,0,${clamp(0.5 * d, 0, 0.8)})`);
+      }
+    }
+  }
+
+  // 4. The material, over the whole object — one surface catching one
   // light, rather than a textured panel holding an untextured picture.
   materialLighting(ctx, s);
   materialGrain(ctx, s);
 
-  // 4. The wall between panel and glass.
-  if (P.depth !== 'flat' && wall > 0) {
-    drawWell(ctx, s, aperture, glass, theta, plug, d);
+  // 4a. The lens's crisp finish, kept above the grain.
+  if (wall > 0 && P.depth === 'glass') glassFinish(ctx, s, aperture, glass, theta);
 
-    // What the wall throws onto the sky just inside the sill: the well is
-    // deep, so its own edge shades the top of the picture.
-    if (!plug) {
-      innerShadow(ctx, glassPath, s * 0.05 * d, 0, `rgba(0,0,0,${clamp(0.5 * d, 0, 0.8)})`);
-    }
-  }
-
-  // 5. Glass, if the window is glazed: a pane curving over the sky.
-  if (P.depth === 'glazed' && d > 0) {
+  // 4b. The panel is glass too: it picks up the sky sitting behind it,
+  // the way a frosted slab carries the colour of what it covers.
+  if (P.frost > 0 && panel > 0) {
+    const region = new Path2D();
+    region.addPath(mask);
+    region.addPath(boxPath(aperture));
     ctx.save();
-    ctx.clip(glassPath);
-    const pane = ctx.createLinearGradient(
-      glass.x + Math.cos(theta) * glass.w, glass.y + Math.sin(theta) * glass.h,
-      glass.x + glass.w - Math.cos(theta) * glass.w, glass.y + glass.h - Math.sin(theta) * glass.h);
-    pane.addColorStop(0, `rgba(255,255,255,${0.34 * d})`);
-    pane.addColorStop(0.30, `rgba(255,255,255,${0.04 * d})`);
-    pane.addColorStop(0.78, 'rgba(255,255,255,0)');
-    pane.addColorStop(1, `rgba(255,255,255,${0.16 * d})`);
-    ctx.fillStyle = pane;
+    ctx.clip(region, 'evenodd');
+    ctx.globalAlpha = clamp(P.frost, 0, 1);
+    ctx.fillStyle = skyGradient(ctx, { x: 0, y: 0, w: s, h: s }, pal, 1.9);
     ctx.fillRect(0, 0, s, s);
     ctx.restore();
   }
@@ -866,10 +1038,16 @@ const outputs = [
   slider('iRound', 'roundness', 'oRound', v => v.toFixed(2)),
   slider('iLight', 'lightAngle', 'oLight', v => `${v}°`),
   slider('iPar', 'parallax', 'oPar', v => v.toFixed(2)),
+  slider('iRefract', 'refract', 'oRefract', v => v.toFixed(2)),
+  slider('iBleed', 'bleed', 'oBleed', v => v.toFixed(2)),
+  slider('iSpec', 'specular', 'oSpec', v => v.toFixed(2)),
+  slider('iChroma', 'chroma', 'oChroma', v => v.toFixed(2)),
+  slider('iFrost', 'frost', 'oFrost', v => v.toFixed(2)),
   slider('iDepth', 'depthAmt', 'oDepth', v => v.toFixed(2)),
   slider('iRim', 'rim', 'oRim', v => v.toFixed(2)),
   slider('iGloss', 'gloss', 'oGloss', v => v.toFixed(2)),
   slider('iVig', 'vignette', 'oVig', v => v.toFixed(2)),
+  slider('iSimilar', 'similar', 'oSimilar', v => v.toFixed(2)),
   slider('iRadius', 'radius', 'oRadius', () => `${derived().rPct.toFixed(1)} % of w`),
   slider('iSmooth', 'smooth', 'oSmooth', () => `${Math.round(derived().k * 100)} %`),
   slider('iAngle', 'angle', 'oAngle', v => `${v}°`),
@@ -923,13 +1101,25 @@ for (const h of location.hash.slice(1).split('+')) {
   const i = PALETTES.findIndex(p => p.name === h);
   if (i >= 0) P.palette = i;
   if (h in MATERIALS) P.material = h;
-  if (['flat', 'well', 'plug', 'glazed'].includes(h)) P.depth = h;
+  if (['flat', 'well', 'plug', 'glass'].includes(h)) P.depth = h;
   if (h === 'bleed') { P.inset = 0; P.wall = 0; }
   if (h === 'grid') P.grid = true;
+  if (h === 'dark') Object.assign(P, DARK);
 
 }
 
 render();
+
+// Headless export: `?png` swaps the page for the 1024 master's base64, so
+// `chrome --headless --dump-dom` can pull the icon out without a click.
+// This is what scripts/icon.sh drives — the app's real icon is generated
+// from these very defaults, so the prototype IS the source of truth.
+if (new URLSearchParams(location.search).has('png')) {
+  const out = document.createElement('canvas');
+  out.width = out.height = 1024;
+  drawIcon(out.getContext('2d'), 1024, PALETTES[P.palette], false);
+  document.body.textContent = out.toDataURL('image/png');
+}
 </script>
 </body>
 </html>
