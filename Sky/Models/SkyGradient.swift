@@ -111,17 +111,23 @@ extension Array where Element == SkyStop {
         )]
     }
 
+    /// The color the gradient shows at `location` — the eyedropper's read.
+    func hex(at location: CGFloat) -> UInt32 {
+        let sorted = self.sorted { $0.location < $1.location }
+        guard let first = sorted.first, let last = sorted.last else { return 0 }
+        guard let above = sorted.first(where: { $0.location >= location }) else { return last.hex }
+        guard let below = sorted.last(where: { $0.location <= location }) else { return first.hex }
+        let span = above.location - below.location
+        guard span > 0 else { return below.hex }
+        return SkyStop.mix(below.hex, above.hex, (location - below.location) / span)
+    }
+
     /// The color the gradient would show at `location` if stop `index`
     /// weren't there.
     func colorWithout(_ index: Int, at location: CGFloat) -> UInt32 {
         let rest = enumerated().filter { $0.offset != index }.map(\.element)
-            .sorted { $0.location < $1.location }
-        guard let first = rest.first, let last = rest.last else { return self[index].hex }
-        guard let above = rest.first(where: { $0.location >= location }) else { return last.hex }
-        guard let below = rest.last(where: { $0.location <= location }) else { return first.hex }
-        let span = above.location - below.location
-        guard span > 0 else { return below.hex }
-        return SkyStop.mix(below.hex, above.hex, (location - below.location) / span)
+        guard !rest.isEmpty else { return self[index].hex }
+        return rest.hex(at: location)
     }
 
     /// A display copy with stop `index` melted `fade` of the way into its

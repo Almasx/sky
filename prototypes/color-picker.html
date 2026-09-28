@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Sky — color picker prototype</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    background: #d8d8d8;
+    font-family: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif;
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+  }
+
+  /* iOS semantic ink, light mode — never hardcoded greys in the sheet. */
+  :root {
+    /* Zooming the card to full screen is the hero move: in = Animation.heroOpen
+       (0.31s, bounce 0.19), out = heroClose (0.26s, 0). Eases set from JS. */
+    --zoom-in-dur: .31s; --zoom-out-dur: .26s;
+    --zoom-in-ease: ease-out; --zoom-out-ease: ease-out;
+    --ink-secondary: rgba(60, 60, 67, .6);
+    --ink-tertiary: rgba(60, 60, 67, .3);
+    --fill-quaternary: rgba(116, 116, 128, .08);
+    --edit-slide: .22s cubic-bezier(.22, 1, .36, 1);   /* Animation.editSlide 0.22s / 0 */
+    --title-size: 17px;
+  }
+
+  .stage { height: 100%; display: flex; align-items: center; justify-content: center; gap: 28px; }
+
+  /* ── Phone ─────────────────────────────────────────────────── */
+
+  .phone {
+    position: relative;
+    width: 402px; height: 874px;
+    background: #EEEEEE;
+    border-radius: 60px;
+    overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,.25);
+    flex: none;
+  }
+
+  /* Color mode geometry: card at x = 16 (Figma 152:2332), 370×548.66,
+     corner 55. The aspect ratio never changes — a low stop makes the whole
+     scene ride up instead. */
+  .scene { position: absolute; inset: 0; transition: transform var(--edit-slide); }
+  .card {
+    position: absolute;
+    left: 16px; top: 162.67px;
+    width: 370px; height: 548.66px;
+    border-radius: 55px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.18);
+    cursor: pointer;
+  }
+  /* The docked tail: the edited stop's wedge peeking into the 16pt gutter. */
+  .tail {
+    position: absolute;
+    left: 380px; width: 14px; height: 22px;
+    margin-top: -11px;
+    background: #fff;
+    clip-path: polygon(0 50%, 100% 0, 100% 100%);
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,.2));
+    transition: top var(--edit-slide);
+  }
+  .stopHit {
+    position: absolute; left: 16px; width: 370px; height: 44px; margin-top: -22px;
+    cursor: pointer;
+  }
+
+  /* ── The sheet ─────────────────────────────────────────────── */
+
+  /* LAYERS, bottom → top, fixed for every state so nothing ever pops across
+     another mid-move: scene (card + tail) · zoom 20 (the card, grown — so it
+     stays under the sheet exactly like the card does) · sheet 40 · pick
+     surface 50 (loupe + X, only while picking). The scene doesn't move while
+     picking either: the zoom opens from and lands back on the card where it
+     already sits, ride-up and all, so no edge ever slides out from under it. */
+  .sheet {
+    position: absolute; z-index: 40;
+    left: 6px; right: 6px; bottom: 6px;
+    border-radius: 34px;
+    background: rgba(255,255,255,.68);
+    backdrop-filter: blur(24px) saturate(1.3);
+    -webkit-backdrop-filter: blur(24px) saturate(1.3);
+    box-shadow: 0 8px 16px rgba(0,0,0,.05), 0 16px 32px rgba(0,0,0,.16), inset 0 0 0 .5px rgba(255,255,255,.7);
+    transition: transform .34s cubic-bezier(.22, 1, .36, 1);
+    padding-bottom: 16px;
+  }
+  .phone.closed .sheet { transform: translateY(calc(100% + 20px)); }
+
+  .grabber { height: 16px; padding-top: 5px; display: flex; justify-content: center; }
+  .grabber::before { content: ""; width: 36px; height: 5px; border-radius: 3px; background: rgba(0,0,0,.18); }
+
+  .toolbar {
+    position: relative;
+    height: 52px;
+    margin: 0 16px 0;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .toolbar .title {
+    color: var(--ink-secondary);
+    font-weight: 700;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  /* A: today's sheet — big left title, flat quaternary X. */
+  .toolbar.hA .title { font-size: 24px; padding-left: 6px; }
+  /* B–D: the iOS 26 sheet toolbar — small centered title, glass buttons. */
+  .toolbar:not(.hA) .title {
+    position: absolute; left: 0; right: 0; text-align: center;
+    font-size: var(--title-size); font-weight: 600;
+  }
+  .toolbar.hD .title { display: none; }
+  /* Custom glyph, the GlassIconButton family: heavy, round-capped,
+     tertiary ink — the X's stroke weight, drawn as a pipette. */
+  .btn .dropper { width: 22px; height: 22px; stroke-width: 2; }
+  .btn .dropper .fs, .btn .dropper .f { fill: var(--ink-tertiary); }
+  .btn .dropper .f { stroke: none; }
+
+  /* ── Eyedropper ────────────────────────────────────────────── */
+  .phone.picking .sheet { transform: translateY(calc(100% + 20px)); }
+
+  /* The sky zooms in: a full-screen copy of the card's own gradient starts
+     exactly on top of the card (clipped to its rect and corner, content
+     squeezed to its size, ride-up included) and opens to the whole screen,
+     so it reads as the card itself filling the phone. Leaving runs it back
+     into the card, then it vanishes onto the identical card underneath. */
+  .zoom {
+    position: absolute; inset: 0; z-index: 20; overflow: hidden;
+    pointer-events: none; opacity: 0;
+    clip-path: inset(calc(162.67px + var(--card-shift, 0px)) 16px calc(162.67px - var(--card-shift, 0px)) 16px round 55px);
+    transition: clip-path var(--zoom-out-dur) var(--zoom-out-ease), opacity 0s var(--zoom-out-dur);
+  }
+  .zoom canvas {
+    width: 100%; height: 100%; display: block;
+    transform: translateY(var(--card-shift, 0px)) scale(0.9204, 0.6278);   /* 370/402, 548.66/874 */
+    transition: transform var(--zoom-out-dur) var(--zoom-out-ease);
+  }
+  .phone.picking .zoom { opacity: 1; clip-path: inset(0 round 60px); transition: clip-path var(--zoom-in-dur) var(--zoom-in-ease); }
+  .phone.picking .zoom canvas { transform: none; transition: transform var(--zoom-in-dur) var(--zoom-in-ease); }
+
+  .pickSurface { position: absolute; inset: 0; z-index: 50; display: none; cursor: none; touch-action: none; }
+  .phone.picking .pickSurface { display: block; }
+  .btn.pickClose { position: absolute; top: 58px; right: 16px; }
+
+  /* The loupe as a Liquid Glass lens: the sky under it, magnified smoothly
+     (glass refracts, it doesn't show pixels), a bright rim with the light
+     from above, and a small reticle filled with the color you'll get. */
+  .loupe {
+    position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px;
+    border-radius: 50%; overflow: hidden; pointer-events: none;
+    box-shadow: 0 14px 34px rgba(0,0,0,.28), 0 2px 6px rgba(0,0,0,.14);
+  }
+  .loupe canvas { width: 100%; height: 100%; display: block; }
+  .loupe::before {             /* rim: refraction band + edge light */
+    content: ""; position: absolute; inset: 0; border-radius: 50%;
+    background: radial-gradient(circle, transparent 60%, rgba(255,255,255,.10) 78%, rgba(255,255,255,.34) 96%, rgba(255,255,255,.08) 100%);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.7), inset 0 -8px 16px rgba(0,0,0,.10);
+  }
+  .loupe::after {              /* specular: the top-left catch light */
+    content: ""; position: absolute; left: 14%; top: 7%; width: 52%; height: 30%; border-radius: 50%;
+    background: radial-gradient(ellipse at 50% 30%, rgba(255,255,255,.55), rgba(255,255,255,0) 70%);
+    transform: rotate(-18deg);
+  }
+  .reticle {
+    position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px;
+    border-radius: 50%; background: var(--picked, #fff);
+    box-shadow: 0 0 0 2.5px #fff, 0 0 0 3.5px rgba(0,0,0,.2), 0 2px 6px rgba(0,0,0,.25);
+    z-index: 1;
+  }
+
+  .btn {
+    width: 44px; height: 44px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; position: relative; z-index: 1;
+    transition: transform .15s;
+  }
+  .btn:active { transform: scale(.92); }
+  .btn svg { width: 17px; height: 17px; stroke: var(--ink-tertiary); stroke-width: 3.4; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+  .toolbar.hA .btn { background: rgba(116,116,128,.12); }
+  .toolbar:not(.hA) .btn {
+    background: rgba(255,255,255,.62);
+    box-shadow: 0 2px 10px rgba(0,0,0,.08), inset 0 0 0 .5px rgba(255,255,255,.9);
+  }
+  .btn.confirm { background: rgba(10,132,255,.92) !important; }
+  .btn.confirm svg { stroke: #fff; }
+  .btn.ghost { visibility: hidden; }
+
+  .rows { padding: 16px 16px 0; display: flex; flex-direction: column; gap: 20px; }
+  .row { display: flex; align-items: center; gap: 12px; }
+
+  .slider { position: relative; flex: 1; height: 44px; border-radius: 22px; cursor: pointer; touch-action: none; }
+  .thumb {
+    position: absolute; top: 4px; left: 4px;
+    width: 36px; height: 36px; border-radius: 50%;
+    box-shadow: inset 0 0 0 3px #fff, 0 1px 3px rgba(0,0,0,.25), 0 3px 7px rgba(0,0,0,.18);
+    transition: transform .2s cubic-bezier(.34, 1.3, .64, 1);
+    pointer-events: none;
+  }
+  .slider.dragging .thumb { transform: scale(1.15); }
+  /* When the dead-hue wake moves a thumb, it glides there instead of jumping. */
+  .glide .thumb { transition: left .28s cubic-bezier(.22, 1, .36, 1), transform .2s; }
+  .glide .padThumb { transition: left .28s cubic-bezier(.22, 1, .36, 1), top .28s cubic-bezier(.22, 1, .36, 1); }
+
+  .pill {
+    width: 85px; height: 44px; border-radius: 22px; flex: none;
+    background: rgba(116,116,128,.12);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; font-weight: 700; color: var(--ink-secondary);
+    font-variant-numeric: tabular-nums;
+    cursor: ew-resize; touch-action: none;
+  }
+  .pill small { font-size: 15px; margin-left: 1px; opacity: .7; }
+
+  .pad { position: relative; height: 150px; border-radius: 22px; overflow: hidden; cursor: crosshair; touch-action: none; }
+  .pad canvas { width: 100%; height: 100%; display: block; }
+  .padThumb {
+    position: absolute; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%;
+    box-shadow: inset 0 0 0 3px #fff, 0 1px 3px rgba(0,0,0,.3), 0 3px 7px rgba(0,0,0,.18);
+    pointer-events: none;
+  }
+
+  /* A dead control, made visible: the hue row dims when moving it would do
+     nothing (only with "wake" off and "show dead" on). */
+  .row.dead .slider { opacity: .45; }
+
+  /* ── Panel ─────────────────────────────────────────────────── */
+
+  .panel {
+    width: 330px; max-height: 874px; overflow-y: auto;
+    background: #fff; border-radius: 20px;
+    padding: 18px 18px 22px;
+    font-family: -apple-system, system-ui, sans-serif;
+    font-size: 13px; color: #333;
+    box-shadow: 0 10px 40px rgba(0,0,0,.12);
+  }
+  .panel h1 { font-size: 16px; margin-bottom: 4px; }
+  .panel p.note { color: #888; font-size: 12px; line-height: 1.4; margin-bottom: 10px; }
+  .panel h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #999; margin: 16px 0 8px; }
+  .seg { display: flex; flex-wrap: wrap; gap: 4px; }
+  .seg button {
+    flex: 1 1 auto; padding: 6px 8px; border: 0; border-radius: 8px;
+    background: #f0f0f0; color: #444; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .seg button.on { background: #222; color: #fff; }
+  .ctl { display: grid; grid-template-columns: 110px 1fr 44px; align-items: center; gap: 8px; margin: 6px 0; }
+  .ctl input[type=range] { width: 100%; }
+  .ctl output { text-align: right; font-variant-numeric: tabular-nums; color: #666; }
+  label.chk { display: flex; gap: 8px; align-items: center; margin: 6px 0; cursor: pointer; }
+  .readout {
+    margin-top: 8px; padding: 10px 12px; border-radius: 10px; background: #f6f6f6;
+    font: 12px/1.6 ui-monospace, Menlo, monospace; color: #555;
+  }
+  .readout b { color: #222; }
+  .swatch { display: inline-block; width: 11px; height: 11px; border-radius: 3px; vertical-align: -1px; margin-right: 6px; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.2); }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="phone" id="phone">
+    <div class="scene" id="scene">
+      <div class="card" id="card"></div>
+      <div id="hits"></div>
+      <div class="tail" id="tail"></div>
+    </div>
+    <div class="zoom"><canvas id="zoom" width="804" height="1748"></canvas></div>
+    <div class="pickSurface" id="pickSurface">
+      <div class="loupe" id="loupe"><canvas id="loupeCv" width="240" height="240"></canvas><div class="reticle"></div></div>
+      <div class="toolbar" style="position:static;margin:0"><div class="btn pickClose" data-act="cancelPick" id="pickClose"></div></div>
+    </div>
+
+    <div class="sheet" id="sheet">
+      <div class="grabber"></div>
+      <div class="toolbar" id="toolbar"></div>
+      <div class="rows" id="rows"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h1>Color picker</h1>
+    <p class="note">Starts on the blank sky (white → gray), where today's hue slider does nothing: saturation is 0, so every hue is the same gray. Tap the card to pick a stop, X to close.</p>
+
+    <h2>Color model</h2>
+    <div class="seg" data-key="model">
+      <button data-v="hsb">HSB (today)</button>
+      <button data-v="oklch">OKLCH</button>
+    </div>
+    <p class="note" style="margin-top:6px" id="modelNote"></p>
+
+    <h2>Dead hue</h2>
+    <label class="chk"><input type="checkbox" id="wake"> Wake: moving hue on a gray lifts the color out of gray</label>
+    <div class="ctl"><span>Wake to</span><input type="range" id="wakeAmt" min="10" max="100" step="1"><output id="wakeAmtOut"></output></div>
+    <div class="ctl"><span>Counts as gray</span><input type="range" id="wakeBelow" min="1" max="20" step="1"><output id="wakeBelowOut"></output></div>
+    <label class="chk"><input type="checkbox" id="showDead"> Dim the hue row while it's dead</label>
+
+    <h2>Layout</h2>
+    <div class="seg" data-key="layout">
+      <button data-v="sliders">Three sliders</button>
+      <button data-v="pad">Pad + hue</button>
+    </div>
+
+    <h2>Header</h2>
+    <div class="seg" data-key="header">
+      <button data-v="A">A · today</button>
+      <button data-v="B">B · center, X right</button>
+      <button data-v="C">C · X ✓</button>
+      <button data-v="D">D · X only</button>
+      <button data-v="E">E · dropper, center, X</button>
+    </div>
+    <p class="note" style="margin-top:6px" id="headerNote"></p>
+    <div class="ctl"><span>Title size</span><input type="range" id="titleSize" min="13" max="24" step="1"><output id="titleSizeOut"></output></div>
+
+    <h2>Eyedropper</h2>
+    <div class="ctl"><span>Zoom in</span><input type="range" id="zoomInDur" min="150" max="600" step="10"><output id="zoomInDurOut"></output></div>
+    <div class="ctl"><span>  bounce</span><input type="range" id="zoomInBounce" min="0" max="40" step="1"><output id="zoomInBounceOut"></output></div>
+    <div class="ctl"><span>Zoom out</span><input type="range" id="zoomOutDur" min="150" max="600" step="10"><output id="zoomOutDurOut"></output></div>
+    <div class="ctl"><span>  bounce</span><input type="range" id="zoomOutBounce" min="0" max="40" step="1"><output id="zoomOutBounceOut"></output></div>
+    <div class="ctl"><span>Loupe magnify</span><input type="range" id="zoomMag" min="15" max="60" step="1"><output id="zoomMagOut"></output></div>
+
+    <h2>Starting sky</h2>
+    <div class="seg" data-key="sky">
+      <button data-v="blank">Blank</button>
+      <button data-v="dusk">Dusk</button>
+      <button data-v="night">Night</button>
+      <button data-v="black">Black → white</button>
+    </div>
+
+    <h2>Now</h2>
+    <div class="readout" id="readout"></div>
+  </div>
+</div>
+
+<script>
+// ── Color math ───────────────────────────────────────────────────
+const clamp = (x, a = 0, b = 1) => Math.min(Math.max(x, a), b);
+const toLin = c => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+const toGam = c => c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055;
+
+function rgbToOklab([r, g, b]) {
+  r = toLin(r); g = toLin(g); b = toLin(b);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+          1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+          0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s];
+}
+function oklabToLinear([L, a, b]) {
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+  return [ 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+          -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+          -0.0041960771 * l - 0.7034186147 * m + 1.7076147010 * s];
+}
+const oklabToRgb = lab => oklabToLinear(lab).map(c => toGam(clamp(c)));
+
+// The most chroma sRGB can show at this lightness and hue.
+function maxChroma(L, h) {
+  if (L <= 0 || L >= 1) return 0;
+  const ca = Math.cos(h * Math.PI / 180), sa = Math.sin(h * Math.PI / 180);
+  let lo = 0, hi = 0.4;
+  for (let i = 0; i < 18; i++) {
+    const c = (lo + hi) / 2;
+    const lin = oklabToLinear([L, c * ca, c * sa]);
+    if (lin.every(v => v >= -1e-5 && v <= 1 + 1e-5)) lo = c; else hi = c;
+  }
+  return lo;
+}
+// OKLCH with chroma as a share of what's reachable here — every slider
+// position is a real, in-gamut color, and 100% is always the most vivid.
+function oklchToRgb(L, c, h) {
+  const C = c * maxChroma(L, h);
+  return oklabToRgb([L, C * Math.cos(h * Math.PI / 180), C * Math.sin(h * Math.PI / 180)]);
+}
+function rgbToOklch(rgb, fallbackHue) {
+  const [L, a, b] = rgbToOklab(rgb);
+  const C = Math.hypot(a, b);
+  const h = C < 1e-4 ? fallbackHue : (Math.atan2(b, a) * 180 / Math.PI + 360) % 360;
+  const max = maxChroma(L, h);
+  return { L: clamp(L), c: max > 0.004 ? clamp(C / max) : 0, h };
+}
+
+function hsbToRgb(h, s, v) {
+  const f = n => { const k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); };
+  return [f(5), f(3), f(1)];
+}
+function rgbToHsb([r, g, b], fallbackHue) {
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let h = fallbackHue;
+  if (d > 1e-6) {
+    if (max === r) h = 60 * (((g - b) / d) % 6);
+    else if (max === g) h = 60 * ((b - r) / d + 2);
+    else h = 60 * ((r - g) / d + 4);
+    h = (h + 360) % 360;
+  }
+  return { h, s: max ? d / max : 0, b: max };
+}
+
+const hexToRgb = hex => [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255].map(v => v / 255);
+const rgbToHex = rgb => rgb.reduce((n, v) => n * 256 + Math.round(clamp(v) * 255), 0);
+const hexStr = hex => '#' + hex.toString(16).toUpperCase().padStart(6, '0');
+const css = rgb => hexStr(rgbToHex(rgb));
+
+// ── State ────────────────────────────────────────────────────────
+const SKIES = {
+  blank: [[0xFFFFFF, 0], [0x999999, 1]],
+  dusk:  [[0x8D909E, 0], [0xB69F99, .485], [0xC8A68F, .680], [0xD4AC77, .838], [0xDE956A, 1]],
+  night: [[0x03113A, 0], [0x293EA5, .389], [0x5457E1, .659], [0x9380F9, .861], [0xDE8DED, .963]],
+  black: [[0x000000, 0], [0xFFFFFF, 1]],
+};
+
+const S = {
+  model: 'hsb', layout: 'sliders', header: 'E', sky: 'blank', picking: false, zoomInDur: 310, zoomInBounce: 19, zoomOutDur: 260, zoomOutBounce: 0, zoomMag: 30,
+  wake: true, wakeAmt: 100, wakeBelow: 1, showDead: false, titleSize: 17,
+  stops: [], index: 0, open: true,
+  seedHex: 0,           // for the C header's X = revert
+  hsb: { h: 0, s: 0, b: 1 },
+  lch: { L: 1, c: 0, h: 0 },
+};
+
+const hash = location.hash.slice(1).split('+');
+if (hash.includes('oklch')) S.model = 'oklch';
+if (hash.includes('nowake')) S.wake = false;
+if (hash.includes('pad')) S.layout = 'pad';
+const autoPick = hash.includes('pick');
+for (const h of 'ABCDE') if (hash.includes(h)) S.header = h;
+for (const k in SKIES) if (hash.includes(k)) S.sky = k;
+
+const currentRgb = () => S.model === 'hsb'
+  ? hsbToRgb(S.hsb.h, S.hsb.s, S.hsb.b)
+  : oklchToRgb(S.lch.L, S.lch.c, S.lch.h);
+
+function seedFrom(hex) {
+  const rgb = hexToRgb(hex);
+  S.hsb = rgbToHsb(rgb, S.hsb.h);
+  S.lch = rgbToOklch(rgb, S.lch.h);
+}
+
+function loadSky() {
+  S.stops = SKIES[S.sky].map(([hex, location]) => ({ hex, location }));
+  S.index = Math.min(S.index, S.stops.length - 1);
+  selectStop(S.index);
+}
+function selectStop(i) {
+  S.index = i;
+  S.seedHex = S.stops[i].hex;
+  seedFrom(S.seedHex);
+  S.open = true;
+  render();
+}
+function commit() {
+  S.stops[S.index].hex = rgbToHex(currentRgb());
+}
+
+// Is the hue slider a dead control right now?
+function hueIsDead() {
+  const g = S.wakeBelow / 100;
+  if (S.model === 'hsb') return S.hsb.s < g || S.hsb.b < g;
+  return S.lch.c < g || maxChroma(S.lch.L, S.lch.h) < 0.004;
+}
+// Wake: the first hue move on a gray also lifts saturation (or chroma)
+// off zero — and pulls pure white / black in far enough that color exists.
+function wakeHue() {
+  if (!S.wake || !hueIsDead()) return false;
+  const amt = S.wakeAmt / 100, g = S.wakeBelow / 100;
+  if (S.model === 'hsb') {
+    if (S.hsb.s < g) S.hsb.s = amt;
+    if (S.hsb.b < g) S.hsb.b = 0.5;
+  } else {
+    if (S.lch.c < g) S.lch.c = amt;
+    if (S.lch.L > 0.97) S.lch.L = 0.9;
+    if (S.lch.L < 0.08) S.lch.L = 0.4;
+  }
+  return true;
+}
+
+// ── Rendering ────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const CARD_TOP = 162.67, CARD_H = 548.66, SHEET_BOTTOM = 874 - 6;
+
+function sheetHeight() { return $('sheet').offsetHeight || 272; }
+
+function renderCard() {
+  const sorted = [...S.stops].sort((a, b) => a.location - b.location);
+  // The app blends in Oklab — so does the preview.
+  $('card').style.background = `linear-gradient(to bottom in oklab, ${sorted.map(s => `${hexStr(s.hex)} ${s.location * 100}%`).join(', ')})`;
+  const y = CARD_TOP + S.stops[S.index].location * CARD_H;
+  $('tail').style.top = y + 'px';
+  $('tail').style.opacity = S.open ? 1 : 0;
+  // Ride up just enough to keep the edited stop clear of the sheet.
+  const clear = SHEET_BOTTOM - sheetHeight() - 44;
+  const shift = S.open ? Math.min(0, clear - y) : 0;
+  $('scene').style.transform = `translateY(${shift}px)`;
+  $('phone').style.setProperty('--card-shift', shift + 'px');
+  $('hits').innerHTML = '';
+  S.stops.forEach((s, i) => {
+    const d = document.createElement('div');
+    d.className = 'stopHit';
+    d.style.top = (CARD_TOP + s.location * CARD_H) + 'px';
+    d.onclick = e => { e.stopPropagation(); selectStop(i); };
+    $('hits').appendChild(d);
+  });
+}
+
+const X_SVG = '<svg viewBox="0 0 17 17"><path d="M3 3l11 11M14 3L3 14"/></svg>';
+// The Lucide pipette, redrawn heavy to sit beside the X: thicker round
+// strokes, the fiddly tip cap dropped, the bulb filled like a solid glyph.
+const DROPPER_SVG = '<svg class="dropper" viewBox="0 0 24 24">' +
+  '<path class="fs" d="M3.58606 17.414L12.0001 9L15.0001 12L6.58606 20.414C6.21108 20.7891 5.70245 20.9999 5.17206 21H3.82806C3.29767 21.0001 2.78905 21.2109 2.41406 21.586C2.78916 21.211 2.99995 20.7024 3.00006 20.172V18.828C3.00018 18.2976 3.21096 17.789 3.58606 17.414Z"/>' +
+  '<path class="f" d="M17.9998 9.00002L18.3998 9.40002C18.5968 9.597 18.7531 9.83085 18.8597 10.0882C18.9663 10.3456 19.0212 10.6214 19.0212 10.9C19.0212 11.1786 18.9663 11.4544 18.8597 11.7118C18.7531 11.9692 18.5968 12.203 18.3998 12.4C18.2029 12.597 17.969 12.7533 17.7116 12.8599C17.4543 12.9665 17.1784 13.0213 16.8998 13.0213C16.6213 13.0213 16.3454 12.9665 16.088 12.8599C15.8307 12.7533 15.5968 12.597 15.3998 12.4L11.5998 8.60002C11.202 8.20219 10.9785 7.66263 10.9785 7.10002C10.9785 6.82144 11.0334 6.5456 11.14 6.28822C11.2466 6.03085 11.4029 5.797 11.5998 5.60002C11.7968 5.40304 12.0307 5.24678 12.288 5.14017C12.5454 5.03357 12.8213 4.9787 13.0998 4.9787C13.6624 4.9787 14.202 5.20219 14.5998 5.60002L14.9998 6.00002L18.3998 2.60002C18.7977 2.20219 19.3372 1.9787 19.8998 1.9787C20.4624 1.9787 21.002 2.20219 21.3998 2.60002C21.7977 2.99784 22.0212 3.53741 22.0212 4.10002C22.0212 4.66263 21.7977 5.20219 21.3998 5.60002L17.9998 9.00002Z"/>' +
+  '<path class="s" d="M2 22L2.414 21.586"/></svg>';
+const CHECK_SVG = '<svg viewBox="0 0 17 17"><path d="M2.5 9l4 4 8-9"/></svg>';
+
+function renderToolbar() {
+  const t = $('toolbar');
+  t.className = 'toolbar h' + S.header;
+  const title = '<div class="title">Choose color</div>';
+  const x = `<div class="btn" data-act="close">${X_SVG}</div>`;
+  const ghost = '<div class="btn ghost"></div>';
+  t.innerHTML = {
+    A: title + x,
+    B: ghost + title + x,
+    C: `<div class="btn" data-act="revert">${X_SVG}</div>` + title + `<div class="btn confirm" data-act="close">${CHECK_SVG}</div>`,
+    D: ghost + title + x,
+    E: `<div class="btn" data-act="dropper">${DROPPER_SVG}</div>` + title + x,
+  }[S.header];
+  t.querySelectorAll('[data-act]').forEach(b => b.onclick = () => {
+    if (b.dataset.act === 'dropper') { startPick(); return; }
+    if (b.dataset.act === 'revert') { S.stops[S.index].hex = S.seedHex; seedFrom(S.seedHex); }
+    S.open = false; render();
+  });
+}
+
+// Each row: { key, value 0..1, track: css gradient, thumb: css color, pill }
+function rowSpecs() {
+  if (S.model === 'hsb') {
+    const { h, s, b } = S.hsb;
+    return [
+      { key: 'h', frac: h / 360, pill: Math.round(h),
+        track: Array.from({ length: 13 }, (_, i) => css(hsbToRgb(i * 30, 1, 1))),
+        thumb: css(hsbToRgb(h, 1, 1)) },
+      { key: 's', frac: s, pill: Math.round(s * 100),
+        track: [css(hsbToRgb(h, 0, b)), css(hsbToRgb(h, 1, b))], thumb: css(hsbToRgb(h, s, b)) },
+      { key: 'b', frac: b, pill: Math.round(b * 100),
+        track: ['#000', css(hsbToRgb(h, s, 1))], thumb: css(hsbToRgb(h, s, b)) },
+    ];
+  }
+  const { L, c, h } = S.lch;
+  // The hue track previews where a hue move will land: at the woken
+  // chroma/lightness if wake is on, otherwise honestly gray when dead.
+  let tL = L, tc = c;
+  if (S.wake && hueIsDead()) {
+    tc = Math.max(c, S.wakeAmt / 100);
+    if (L > 0.97) tL = 0.9;
+    if (L < 0.08) tL = 0.4;
+  }
+  return [
+    { key: 'h', frac: h / 360, pill: Math.round(h),
+      track: Array.from({ length: 25 }, (_, i) => css(oklchToRgb(tL, tc, i * 15))),
+      thumb: css(oklchToRgb(tL, Math.max(tc, .02), h)) },
+    { key: 'c', frac: c, pill: Math.round(c * 100),
+      track: Array.from({ length: 9 }, (_, i) => css(oklchToRgb(L, i / 8, h))), thumb: css(currentRgb()) },
+    { key: 'L', frac: L, pill: Math.round(L * 100),
+      track: Array.from({ length: 13 }, (_, i) => css(oklchToRgb(i / 12, c, h))), thumb: css(currentRgb()) },
+  ];
+}
+
+function setKey(key, frac) {
+  if (S.model === 'hsb') {
+    if (key === 'h') S.hsb.h = frac * 360; else S.hsb[key] = frac;
+  } else {
+    if (key === 'h') S.lch.h = frac * 360; else S.lch[key] = frac;
+  }
+}
+const ranges = { h: 360, s: 100, b: 100, c: 100, L: 100 };
+
+let built = '';
+function renderRows() {
+  const specs = rowSpecs();
+  const shape = S.model + S.layout;
+  const rows = $('rows');
+  if (built !== shape) {
+    built = shape;
+    rows.innerHTML = '';
+    if (S.layout === 'pad') {
+      const pad = document.createElement('div');
+      pad.className = 'pad'; pad.id = 'pad';
+      pad.innerHTML = '<canvas width="120" height="50"></canvas><div class="padThumb"></div>';
+      rows.appendChild(pad);
+      bindPad(pad);
+    }
+    const shown = S.layout === 'pad' ? specs.slice(0, 1) : specs;
+    for (const sp of shown) {
+      const row = document.createElement('div');
+      row.className = 'row'; row.dataset.key = sp.key;
+      row.innerHTML = '<div class="slider"><div class="thumb"></div></div><div class="pill"></div>';
+      rows.appendChild(row);
+      bindSlider(row.querySelector('.slider'), sp.key);
+      bindPill(row.querySelector('.pill'), sp.key);
+    }
+  }
+  for (const sp of specs) {
+    const row = rows.querySelector(`.row[data-key="${sp.key}"]`);
+    if (!row) continue;
+    const slider = row.querySelector('.slider');
+    slider.style.background = `linear-gradient(to right, ${sp.track.join(', ')})`;
+    const w = slider.offsetWidth || 261;
+    const th = row.querySelector('.thumb');
+    th.style.left = (4 + sp.frac * (w - 44)) + 'px';
+    th.style.background = sp.thumb;
+    const unit = sp.key === 'h' ? '<small>°</small>' : '';
+    row.querySelector('.pill').innerHTML = sp.pill + unit;
+    row.classList.toggle('dead', sp.key === 'h' && S.showDead && !S.wake && hueIsDead());
+  }
+  if (S.layout === 'pad') renderPad();
+}
+
+// Pad: x = saturation / chroma, y = brightness / lightness (top = bright).
+function padXY() {
+  return S.model === 'hsb' ? [S.hsb.s, S.hsb.b] : [S.lch.c, S.lch.L];
+}
+let padKey = '';
+function renderPad() {
+  const pad = $('pad');
+  const cv = pad.querySelector('canvas');
+  const key = S.model + (S.model === 'hsb' ? S.hsb.h : S.lch.h).toFixed(1);
+  if (key !== padKey) {
+    padKey = key;
+    const ctx = cv.getContext('2d'), W = cv.width, H = cv.height;
+    const img = ctx.createImageData(W, H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const u = x / (W - 1), v = 1 - y / (H - 1);
+      const rgb = S.model === 'hsb' ? hsbToRgb(S.hsb.h, u, v) : oklchToRgb(v, u, S.lch.h);
+      const o = (y * W + x) * 4;
+      img.data[o] = rgb[0] * 255; img.data[o + 1] = rgb[1] * 255; img.data[o + 2] = rgb[2] * 255; img.data[o + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+  const [u, v] = padXY();
+  const t = pad.querySelector('.padThumb');
+  t.style.left = (15 + u * (pad.offsetWidth - 30)) + 'px';
+  t.style.top = (15 + (1 - v) * (pad.offsetHeight - 30)) + 'px';
+  t.style.background = css(currentRgb());
+}
+
+function glide() {
+  const r = $('rows');
+  r.classList.add('glide');
+  clearTimeout(glide.t);
+  glide.t = setTimeout(() => r.classList.remove('glide'), 300);
+}
+
+function bindSlider(el, key) {
+  el.addEventListener('pointerdown', e => {
+    el.setPointerCapture(e.pointerId);
+    el.classList.add('dragging');
+    let woke = key === 'h' && wakeHue();
+    if (woke) glide();
+    const move = ev => {
+      const r = el.getBoundingClientRect();
+      setKey(key, clamp((ev.clientX - r.left - 22) / (r.width - 44)));
+      commit(); render();
+    };
+    move(e);
+    el.onpointermove = move;
+    el.onpointerup = el.onpointercancel = () => { el.classList.remove('dragging'); el.onpointermove = null; };
+  });
+}
+function bindPill(el, key) {
+  el.addEventListener('pointerdown', e => {
+    el.setPointerCapture(e.pointerId);
+    const x0 = e.clientX;
+    const spec = rowSpecs().find(s => s.key === key);
+    const base = spec.frac * ranges[key];
+    if (key === 'h' && wakeHue()) glide();
+    el.onpointermove = ev => {
+      setKey(key, clamp((base + (ev.clientX - x0) / 3) / ranges[key]));
+      commit(); render();
+    };
+    el.onpointerup = el.onpointercancel = () => { el.onpointermove = null; };
+  });
+}
+function bindPad(el) {
+  el.addEventListener('pointerdown', e => {
+    el.setPointerCapture(e.pointerId);
+    const move = ev => {
+      const r = el.getBoundingClientRect();
+      const u = clamp((ev.clientX - r.left - 15) / (r.width - 30));
+      const v = 1 - clamp((ev.clientY - r.top - 15) / (r.height - 30));
+      if (S.model === 'hsb') { S.hsb.s = u; S.hsb.b = v; } else { S.lch.c = u; S.lch.L = v; }
+      commit(); render();
+    };
+    move(e);
+    el.onpointermove = move;
+    el.onpointerup = el.onpointercancel = () => { el.onpointermove = null; };
+  });
+}
+
+function renderReadout() {
+  const rgb = currentRgb(), hex = rgbToHex(rgb);
+  const hsb = rgbToHsb(rgb, S.hsb.h), lch = rgbToOklch(rgb, S.lch.h);
+  const [L, a, b] = rgbToOklab(rgb);
+  $('readout').innerHTML =
+    `<span class="swatch" style="background:${hexStr(hex)}"></span><b>${hexStr(hex)}</b><br>` +
+    `HSB  ${Math.round(hsb.h)}° ${Math.round(hsb.s * 100)} ${Math.round(hsb.b * 100)}  <span style="color:#aaa">(Figma picker)</span><br>` +
+    `OKLCH  L ${(L * 100).toFixed(0)} · C ${Math.hypot(a, b).toFixed(3)} (${Math.round(lch.c * 100)}% of max) · ${Math.round(lch.h)}°<br>` +
+    `hue slider: ${hueIsDead() ? (S.wake ? '<b>gray — wakes on move</b>' : '<b style="color:#c33">dead</b>') : 'live'}`;
+}
+
+const MODEL_NOTES = {
+  hsb: 'Figma\'s own axes, so values cross-check 1:1. But hue swings brightness (yellow at B 100 is far lighter than blue at B 100), and saturation 0 or brightness 0 kills hue.',
+  oklch: 'Lightness · chroma · hue in the same Oklab space the sky already blends in. Turning hue keeps the color exactly as light; chroma is a share of what sRGB can show there, so 100% is always the most vivid in-gamut color. Doesn\'t cross-check with Figma\'s HSB picker (hex still does).',
+};
+const HEADER_NOTES = {
+  A: 'Today: 24pt title leading, flat X trailing.',
+  B: 'iOS 26 sheet toolbar: small centered title, glass X trailing. Edits are live, so X just closes.',
+  C: 'X = put the color back as it was, ✓ = keep. Only worth it if revert matters.',
+  D: 'No title — the sliders say what the sheet is.',
+  E: 'Eyedropper leading, small centered title, glass X trailing. Tap the dropper: the sheet drops and the sky zooms in to fill the screen, drag from anywhere to move the glass loupe, lift to take the color and the sky zooms back into the card.',
+};
+
+function render() {
+  $('phone').classList.toggle('closed', !S.open);
+  $('phone').classList.toggle('picking', S.picking);
+  const rs = document.documentElement.style;
+  rs.setProperty('--zoom-in-dur', S.zoomInDur / 1000 + 's');
+  rs.setProperty('--zoom-in-ease', springEase(S.zoomInBounce / 100));
+  rs.setProperty('--zoom-out-dur', S.zoomOutDur / 1000 + 's');
+  rs.setProperty('--zoom-out-ease', springEase(S.zoomOutBounce / 100));
+  for (const k of ['zoomInDur', 'zoomOutDur']) { $(k).value = S[k]; $(k + 'Out').textContent = S[k] + 'ms'; }
+  for (const k of ['zoomInBounce', 'zoomOutBounce']) { $(k).value = S[k]; $(k + 'Out').textContent = (S[k] / 100).toFixed(2); }
+  $('zoomMag').value = S.zoomMag; $('zoomMagOut').textContent = (S.zoomMag / 10).toFixed(1) + '×';
+
+  document.documentElement.style.setProperty('--title-size', S.titleSize + 'px');
+  renderToolbar();
+  renderRows();
+  renderCard();
+  renderReadout();
+  document.querySelectorAll('.seg').forEach(seg => seg.querySelectorAll('button').forEach(b =>
+    b.classList.toggle('on', S[seg.dataset.key] === b.dataset.v)));
+  $('modelNote').textContent = MODEL_NOTES[S.model];
+  $('headerNote').textContent = HEADER_NOTES[S.header];
+  $('wake').checked = S.wake; $('showDead').checked = S.showDead;
+  $('wakeAmt').value = S.wakeAmt; $('wakeAmtOut').textContent = S.wakeAmt + '%';
+  $('wakeBelow').value = S.wakeBelow; $('wakeBelowOut').textContent = '< ' + S.wakeBelow + '%';
+  $('titleSize').value = S.titleSize; $('titleSizeOut').textContent = S.titleSize + 'pt';
+}
+
+// ── Panel wiring ─────────────────────────────────────────────────
+document.querySelectorAll('.seg').forEach(seg => seg.addEventListener('click', e => {
+  const v = e.target.dataset.v;
+  if (!v) return;
+  const key = seg.dataset.key;
+  S[key] = v;
+  if (key === 'sky') { S.index = 0; loadSky(); return; }
+  if (key === 'model') seedFrom(S.stops[S.index].hex);
+  render();
+}));
+$('wake').onchange = e => { S.wake = e.target.checked; render(); };
+$('showDead').onchange = e => { S.showDead = e.target.checked; render(); };
+$('wakeAmt').oninput = e => { S.wakeAmt = +e.target.value; render(); };
+$('wakeBelow').oninput = e => { S.wakeBelow = +e.target.value; render(); };
+$('titleSize').oninput = e => { S.titleSize = +e.target.value; render(); };
+$('card').onclick = () => { S.open = true; render(); };
+for (const k of ['zoomInDur', 'zoomInBounce', 'zoomOutDur', 'zoomOutBounce']) $(k).oninput = e => { S[k] = +e.target.value; render(); };
+$('zoomMag').oninput = e => { S.zoomMag = +e.target.value; render(); };
+$('pickClose').innerHTML = X_SVG;
+
+/* SwiftUI-style .spring(duration:bounce:) as a CSS linear() easing — the
+   same helper as color-edit.html, so the tuned values port 1:1. */
+function springEase(bounce) {
+  const zeta = 1 - bounce, pts = [], N = 60;
+  const x = u => {
+    if (zeta >= 1) return 1 - Math.exp(-2 * Math.PI * u) * (1 + 2 * Math.PI * u);
+    const wd = Math.sqrt(1 - zeta * zeta);
+    return 1 - Math.exp(-2 * Math.PI * zeta * u) *
+      (Math.cos(2 * Math.PI * wd * u) + (zeta / wd) * Math.sin(2 * Math.PI * wd * u));
+  };
+  const residual = 1 - x(1);
+  for (let i = 0; i <= N; i++) { const u = i / N; pts.push((x(u) + residual * u).toFixed(4)); }
+  return `linear(${pts.join(',')})`;
+}
+
+// ── Eyedropper ───────────────────────────────────────────────────
+// The zoomed sky: the card's gradient over the full screen at 2×, drawn row
+// by row in Oklab exactly like the app, so the loupe reads true colors.
+function drawZoom() {
+  const cv = $('zoom'), ctx = cv.getContext('2d'), H = cv.height;
+  const sorted = [...S.stops].sort((a, b) => a.location - b.location);
+  for (let y = 0; y < H; y++) {
+    const t = y / (H - 1);
+    const hi = sorted.findIndex(s => s.location >= t);
+    let rgb;
+    if (hi <= 0) rgb = hexToRgb(sorted[hi === 0 ? 0 : sorted.length - 1].hex);
+    else {
+      const a = sorted[hi - 1], b = sorted[hi], u = (t - a.location) / Math.max(b.location - a.location, 1e-6);
+      const x = rgbToOklab(hexToRgb(a.hex)), z = rgbToOklab(hexToRgb(b.hex));
+      rgb = oklabToRgb(x.map((v, i) => v + (z[i] - v) * u));
+    }
+    ctx.fillStyle = css(rgb); ctx.fillRect(0, y, cv.width, 1);
+  }
+  return cv;
+}
+
+let pickHex = null;
+function startPick() {
+  S.picking = true;
+  drawZoom();
+  render();   // the sheet drops, the sky zooms in
+  moveLoupe($('zoom'), 201, 437);
+}
+let lensAt = { x: 201, y: 437 };
+function moveLoupe(src, lx, ly) {
+  lensAt = { x: lx, y: ly };
+  const L = $('loupe');
+  L.style.left = lx + 'px'; L.style.top = ly + 'px';
+  const x = clamp(lx, 0, 401), y = clamp(ly, 0, 873);
+  const lc = $('loupeCv').getContext('2d');
+  const span = 120 / (S.zoomMag / 10);           // screen pts under the lens
+  lc.imageSmoothingEnabled = true; lc.imageSmoothingQuality = 'high';
+  lc.fillStyle = '#EEEEEE'; lc.fillRect(0, 0, 240, 240);
+  const k = src.width / 402;
+  lc.drawImage(src, (x - span / 2) * k, (y - span / 2) * k, span * k, span * k, 0, 0, 240, 240);
+  const p = src.getContext('2d').getImageData(Math.round(x * k), Math.round(y * k), 1, 1).data;
+  pickHex = (p[0] << 16) | (p[1] << 8) | p[2];
+  L.style.setProperty('--picked', hexStr(pickHex));
+}
+function endPick(take) {
+  S.picking = false;
+  if (take && pickHex != null) {
+    seedFrom(pickHex); commit(); glide();
+    drawZoom();   // zoom back out on the sky as it is now
+  }
+  render();
+}
+(() => {
+  const surf = $('pickSurface');
+  surf.addEventListener('pointerdown', e => {
+    if (e.target.closest('[data-act=cancelPick]')) { endPick(false); return; }
+    surf.setPointerCapture(e.pointerId);
+    // Drag from anywhere: the lens moves by the finger's travel, from
+    // wherever it already sits — the finger never covers it.
+    const src = $('zoom');
+    const x0 = e.clientX, y0 = e.clientY, bx = lensAt.x, by = lensAt.y;
+    const at = ev => moveLoupe(src, clamp(bx + ev.clientX - x0, 0, 402), clamp(by + ev.clientY - y0, 0, 874));
+    surf.onpointermove = at;
+    surf.onpointerup = () => { surf.onpointermove = null; endPick(true); };
+  });
+})();
+
+loadSky();
+if (autoPick) setTimeout(startPick, 700);   // play the zoom, don't land in it
+</script>
+</body>
+</html>

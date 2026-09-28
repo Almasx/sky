@@ -47,6 +47,12 @@ struct GradientCreateOverlay: View {
     /// The docked tag, outliving `colorEdit` through the slide back into edit
     /// mode — otherwise the tag re-blooms mid-dismissal and pops in size.
     @State private var dockedStop: Int?
+    /// Heading home: the sheet's dismissal mustn't run the edit-mode slide.
+    @State private var isClosing = false
+    /// The header ✕'s frame while picking: its touches cancel, not pick.
+    @State private var cancelFrame: CGRect = .zero
+    /// The eyedropper pass, if one is running.
+    @State private var eyedropper = EyedropperSession()
 
     private var stops: [SkyStop] { editedStops ?? draft.stops }
     /// What the card draws: the stops, with any stop being pulled off
@@ -78,6 +84,8 @@ struct GradientCreateOverlay: View {
                         progress: editProgress,
                         grab: $grab,
                         colorEditIndex: dockedStop,
+                        // Not part of the pick: gone for the whole pass.
+                        hidesDocked: eyedropper.hidesTag,
                         onTap: openColorEdit
                     )
                 }
@@ -120,9 +128,23 @@ struct GradientCreateOverlay: View {
                 }
                 .ignoresSafeArea()
                 .opacity(chromeOpacity)
-                .opacity(grab.isZoomed || colorEdit != nil ? 0 : 1)
-                .allowsHitTesting(chromeOpacity > 0.5 && !grab.isZoomed && colorEdit == nil)
+                .opacity(grab.isZoomed || colorEdit != nil || eyedropper.stop != nil ? 0 : 1)
+                .allowsHitTesting(chromeOpacity > 0.5 && !grab.isZoomed && colorEdit == nil && eyedropper.stop == nil)
             }
+
+            // The eyedropper's zoomed sky and glass lens: above the card,
+            // below the header (the title holds its place through a pass, and
+            // the header's trailing button is the pass's ✕) and the sheet.
+            SkyEyedropper(
+                stops: displayStops,
+                cardFrame: { size in
+                    let t = cardTranslation(in: size)
+                    return heroRect(in: size).offsetBy(dx: t.width, dy: t.height)
+                },
+                session: eyedropper,
+                cancelFrame: cancelFrame,
+                onFinish: finishPick
+            )
 
             header
                 .opacity(chromeOpacity)
@@ -136,10 +158,18 @@ struct GradientCreateOverlay: View {
         .sensoryFeedback(.impact(flexibility: .soft), trigger: colorEdit?.id)
         // The Choose-color sheet, editing the tapped stop live. Native sheet:
         // detent, grabber, glass and swipe-to-dismiss come from the system.
-        .sheet(item: $colorEdit, onDismiss: closeColorEdit) { target in
+        .sheet(item: $colorEdit, onDismiss: {
+            if isClosing { return }
+            // Dropped for the eyedropper, not closed: the card stays put.
+            if eyedropper.swallowsDismiss {
+                eyedropper.swallowsDismiss = false
+                return
+            }
+            closeColorEdit()
+        }) { target in
             // ✕ starts the card slide NOW, in step with the sheet's exit —
             // onDismiss (which also covers swipe) would only fire after it.
-            ChooseColorSheet(hex: stopHexBinding(target.id)) {
+            ChooseColorSheet(hex: stopHexBinding(target.id), onPick: { startPick(target.id, from: $0) }) {
                 closeColorEdit()
                 colorEdit = nil
             }
@@ -182,13 +212,30 @@ struct GradientCreateOverlay: View {
                     .foregroundStyle(.secondary)
 
                 HStack {
+                    // Out of the way while picking — one ✕ on screen, not two.
                     GlassIconButton(systemName: "xmark") { close() }
+                        .opacity(eyedropper.isPicking ? 0 : 1)
+                        .allowsHitTesting(!eyedropper.isPicking)
                     Spacer()
-                    GlassIconButton(systemName: "checkmark") {
-                        onSave(draft.title, stops)
-                        close()
+                    // ✓ becomes the pass's ✕ while picking — the same button,
+                    // the gallery's +→✓ glyph swap.
+                    GlassIconButton(
+                        systemName: "checkmark",
+                        alternateSystemName: "xmark",
+                        showsAlternate: eyedropper.isPicking
+                    ) {
+                        if eyedropper.isPicking {
+                            finishPick(nil)
+                        } else {
+                            onSave(draft.title, stops)
+                            close()
+                        }
+                    }
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                        cancelFrame = $0
                     }
                 }
+                .animation(.glyphMorph, value: eyedropper.isPicking)
             }
             .padding(16)
 
@@ -370,12 +417,46 @@ struct GradientCreateOverlay: View {
         }
     }
 
+    // MARK: - Eyedropper
+
+    /// The sheet's pipette: the sheet drops, the docked tag goes, and the sky
+    /// zooms up. The card holds still beneath the zoom.
+    private func startPick(_ index: Int, from button: CGRect) {
+        eyedropper.begin(stop: index, from: CGPoint(x: button.midX, y: button.midY))
+        colorEdit = nil
+        withAnimation(.heroOpen) { eyedropper.isZoomed = true }
+    }
+
+    /// Lifted (a color) or cancelled (nil): the lens goes at once, the sky
+    /// zooms back into the card and the sheet rises again, seeded from the
+    /// stop as it now is. The tag rides back in on top of the sky's edge.
+    private func finishPick(_ hex: UInt32?) {
+        guard let index = eyedropper.stop else { return }
+        if let hex { stopHexBinding(index).wrappedValue = hex }
+        colorEdit = ColorEditTarget(id: index)
+        // One motion home: the sky into the card, the lens into the pipette.
+        // Hidden only once the spring has fully landed — a "logically
+        // complete" spring still has a sliver of travel left.
+        withAnimation(.heroClose, completionCriteria: .removed) {
+            eyedropper.isPicking = false
+            eyedropper.isZoomed = false
+        } completion: {
+            guard !eyedropper.isPicking else { return }   // picking again
+            // The eyedropper's riding tag hands over to the real one, on the
+            // same spot.
+            eyedropper.hidesTag = false
+            eyedropper.stop = nil
+        }
+    }
+
     private func stopHexBinding(_ index: Int) -> Binding<UInt32> {
         Binding(
             get: { stops[index].hex },
             set: { newHex in
+                // Recolor in place: the stop keeps its identity, so its tag
+                // stays the same view instead of leaving and re-entering.
                 var edited = stops
-                edited[index] = SkyStop(hex: newHex, location: edited[index].location)
+                edited[index].hex = newHex
                 editedStops = edited
             }
         )
@@ -385,10 +466,16 @@ struct GradientCreateOverlay: View {
         // The shape rounds into a circle on the same spring as the frame, so
         // the whole trip home is one motion.
         isEditing = false
+        // The sheet (and any eyedropper pass) leaves with the card, not after
+        // it lands; the ride-up unwinds on the card's own spring.
+        isClosing = true
+        colorEdit = nil
+        eyedropper = EyedropperSession()
         withAnimation(.heroClose) {
             isExpanded = false
             dragOffset = .zero
             editProgress = 0
+            dockedStop = nil
             circleness = 1
         } completion: {
             onClosed()

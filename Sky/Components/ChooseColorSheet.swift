@@ -12,9 +12,13 @@ struct ColorEditTarget: Identifiable {
 /// native sheet — detent, grabber, glass background and dismissal all come
 /// from the system; only the content is ours.
 ///
-/// Interaction tuned live in prototypes/color-edit.html.
+/// Interaction tuned live in prototypes/color-edit.html; the header, the
+/// eyedropper and the hue wake in prototypes/color-picker.html.
 struct ChooseColorSheet: View {
     @Binding var hex: UInt32
+    /// The eyedropper, with the pipette button's frame (global) — the lens
+    /// flies out of it and back into it.
+    var onPick: (CGRect) -> Void
     var onClose: () -> Void
 
     /// The sheet's single detent. Toolbar 68 + rows 44×3 + gaps 20×2 + 16
@@ -23,9 +27,11 @@ struct ChooseColorSheet: View {
     static let height: CGFloat = 272
 
     @State private var hsb: HSBColor
+    @State private var pipetteFrame: CGRect = .zero
 
-    init(hex: Binding<UInt32>, onClose: @escaping () -> Void) {
+    init(hex: Binding<UInt32>, onPick: @escaping (CGRect) -> Void, onClose: @escaping () -> Void) {
         _hex = hex
+        self.onPick = onPick
         self.onClose = onClose
         _hsb = State(initialValue: HSBColor(hex: hex.wrappedValue))
     }
@@ -35,8 +41,8 @@ struct ChooseColorSheet: View {
             toolbar
             VStack(spacing: 20) {
                 row(
-                    fraction: $hsb.hue.fraction(over: 360),
-                    display: $hsb.hue,
+                    fraction: wakingHue.fraction(over: 360),
+                    display: wakingHue,
                     range: 360,
                     track: Self.hueTrack,
                     thumb: HSBColor(hue: hsb.hue, saturation: 1, brightness: 1).color
@@ -83,11 +89,39 @@ struct ChooseColorSheet: View {
         .onChange(of: hsb) {
             hex = hsb.hex
         }
+        // A color from outside (the eyedropper): the thumbs glide to it.
+        .onChange(of: hex) {
+            guard hex != hsb.hex else { return }
+            withAnimation(.stopGrab) { hsb = HSBColor(hex: hex) }
+        }
         // A tick every whole displayed unit, on any slider.
         .onChange(of: displayedValues) { old, new in
             if old != new { Haptics.tick.selectionChanged() }
             Haptics.tick.prepare()
         }
+    }
+
+    /// Below this, saturation or brightness counts as zero — tuned to 1%.
+    private static let grayBelow = 0.01
+
+    /// Hue, waking the color out of gray. On a gray (saturation 0) or black
+    /// (brightness 0) every hue is the same color, so the slider would move
+    /// and change nothing. Instead the first hue move lifts saturation to
+    /// full (and black to half brightness); those thumbs glide there, so you
+    /// see where the color came from.
+    private var wakingHue: Binding<Double> {
+        Binding(
+            get: { hsb.hue },
+            set: { hue in
+                if hsb.saturation < Self.grayBelow || hsb.brightness < Self.grayBelow {
+                    withAnimation(.stopGrab) {
+                        if hsb.saturation < Self.grayBelow { hsb.saturation = 1 }
+                        if hsb.brightness < Self.grayBelow { hsb.brightness = 0.5 }
+                    }
+                }
+                hsb.hue = hue
+            }
+        )
     }
 
     /// The Figma rainbow track: 12 even hue steps.
@@ -101,28 +135,45 @@ struct ChooseColorSheet: View {
          Int((hsb.brightness * 100).rounded())]
     }
 
+    /// Eyedropper leading, the title centered, ✕ trailing.
     private var toolbar: some View {
-        HStack {
+        ZStack {
             // Semantic ink, like the header title — never hardcoded in modals.
+            // Small and centered — a step under the screen headers' 24.
             Text("Choose color")
-                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundStyle(.secondary)
-                .padding(.leading, 6)
-            Spacer()
-            Button(action: onClose) {
-                // The GlassIconButton glyph treatment (black, rounded,
-                // tertiary ink), a step smaller for the sheet.
-                Image(systemName: "xmark")
-                    .font(.system(size: 19, weight: .black, design: .rounded))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 44, height: 44)
-                    .background(Circle().fill(.quaternary.opacity(0.4)))
+            HStack {
+                iconButton(action: { onPick(pipetteFrame) }) {
+                    // The system symbol, in the ✕'s exact treatment.
+                    Image(systemName: "eyedropper.full")
+                        .font(.system(size: 19, weight: .black, design: .rounded))
+                }
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                    pipetteFrame = $0
+                }
+                Spacer()
+                iconButton(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 19, weight: .black, design: .rounded))
+                }
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
         .padding(.top, 14)
         .padding(.bottom, 10)
+    }
+
+    /// The GlassIconButton glyph treatment (black, rounded, tertiary ink), a
+    /// step smaller for the sheet.
+    private func iconButton(action: @escaping () -> Void, @ViewBuilder glyph: () -> some View) -> some View {
+        Button(action: action) {
+            glyph()
+                .foregroundStyle(.tertiary)
+                .frame(width: 44, height: 44)
+                .background(Circle().fill(.quaternary.opacity(0.4)))
+        }
+        .buttonStyle(.plain)
     }
 
     /// One slider row: gradient track + the value pill (scrub it sideways
@@ -217,15 +268,7 @@ private struct ColorSlider: View {
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(LinearGradient(colors: track, startPoint: .leading, endPoint: .trailing))
-                Circle()
-                    .fill(thumb)
-                    .overlay(Circle().stroke(.white, lineWidth: 3))
-                    .frame(width: 36, height: 36)
-                    // Flatten first, or the ring casts its own shadow inward
-                    // onto the fill; the shadow belongs to the thumb as one.
-                    .compositingGroup()
-                    .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
-                    .shadow(color: .black.opacity(0.18), radius: 7, y: 3)
+                ColorThumb(color: thumb)
                     .scaleEffect(isDragging ? 1.15 : 1)
                     .offset(x: 4 + fraction * (width - 44))
             }
@@ -239,6 +282,24 @@ private struct ColorSlider: View {
         }
         .frame(height: 44)
         .animation(.stopGrab, value: isDragging)
+    }
+}
+
+/// The slider thumb: a 36pt ringed disc of the color. Also marks the
+/// eyedropper lens's sampled point — the thumb you're about to set.
+struct ColorThumb: View {
+    let color: Color
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .overlay(Circle().stroke(.white, lineWidth: 3))
+            .frame(width: 36, height: 36)
+            // Flatten first, or the ring casts its own shadow inward
+            // onto the fill; the shadow belongs to the thumb as one.
+            .compositingGroup()
+            .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+            .shadow(color: .black.opacity(0.18), radius: 7, y: 3)
     }
 }
 
@@ -328,7 +389,7 @@ private enum Haptics {
     @Previewable @State var hex: UInt32 = 0xF5A623
     Color.canvas
         .sheet(isPresented: .constant(true)) {
-            ChooseColorSheet(hex: $hex) {}
+            ChooseColorSheet(hex: $hex, onPick: { _ in }) {}
                 .presentationDetents([.height(ChooseColorSheet.height)])
                 .presentationBackgroundInteraction(.enabled)
                 .presentationDragIndicator(.visible)

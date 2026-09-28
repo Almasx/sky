@@ -120,6 +120,9 @@ struct StopTagColumn: View {
     /// The stop being color-edited, if any: its tag stays docked at the card
     /// edge (indicator only — not grabbable) while the others bloom away.
     var colorEditIndex: Int? = nil
+    /// Hides the docked tag while a twin of it is drawn elsewhere (the
+    /// eyedropper's, riding the zoomed sky).
+    var hidesDocked = false
     /// A tap — as opposed to a grab — on a tag. Opens the color editor.
     var onTap: ((Int) -> Void)? = nil
 
@@ -195,6 +198,7 @@ struct StopTagColumn: View {
             .offset(x: cardSize.width - 22, y: y - 20)
             // The other tags fade away while a stop is grabbed.
             .opacity(grab.isZoomed && grabbedIndex != index ? 0 : 1)
+            .opacity(hidesDocked && isDocked ? 0 : 1)
             .zIndex(tagZ[index] ?? 0)
             // While the color sheet is up only the docked tail is live — a
             // silent handle: drag it to move the stop, nothing else.
