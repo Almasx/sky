@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sky — app icon prototype</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    background: #d8d8d8;
+    font-family: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif;
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+  }
+
+  .stage {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    padding: 20px;
+  }
+
+  .board { display: flex; flex-direction: column; gap: 14px; flex: none; }
+  .heroRow { display: flex; gap: 14px; align-items: stretch; }
+
+  .card {
+    border-radius: 24px;
+    background: rgba(255,255,255,.55);
+    backdrop-filter: blur(14px);
+    box-shadow: 0 18px 50px rgba(0,0,0,.13);
+    padding: 16px;
+  }
+  .cap { font: 11px -apple-system, system-ui, sans-serif; color: #999; text-align: center; }
+
+  .hero { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+  .hero canvas { display: block; filter: drop-shadow(0 16px 28px rgba(0,0,0,.18)); }
+
+  /* The scale ramp — does the material survive at 29pt? */
+  .ramp { display: flex; align-items: flex-end; gap: 16px; justify-content: center; }
+  .ramp .step { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+  .ramp canvas { display: block; }
+
+  /* Home screens: the icon at real size, on both wallpapers. */
+  .home {
+    position: relative;
+    width: 252px;
+    border-radius: 24px;
+    padding: 18px 16px 14px;
+    overflow: hidden;
+    box-shadow: 0 18px 50px rgba(0,0,0,.18);
+  }
+  .home.light { background: linear-gradient(160deg, #e9edf2 0%, #cfd7e2 55%, #b9c3d3 100%); }
+  .home.dark  { background: linear-gradient(160deg, #1d2230 0%, #0f1220 60%, #05060c 100%); }
+  .home .iconGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px 6px; }
+  .home .app { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .home .app .tile { width: 52px; height: 52px; border-radius: 11.6px; background: rgba(255,255,255,.28); }
+  .home.dark .app .tile { background: rgba(255,255,255,.10); }
+  .home .app .name { font: 10px -apple-system, system-ui, sans-serif; color: #1c1c1e; }
+  .home.dark .app .name { color: #f2f2f7; }
+  .home .app canvas { display: block; }
+
+  /* Every palette side by side — the icon has to read as one family. */
+  .family { display: flex; gap: 12px; justify-content: space-between; }
+  .family .pick {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    cursor: pointer; padding: 6px 6px 4px; border-radius: 16px;
+    transition: background .15s;
+  }
+  .family .pick:hover { background: rgba(0,0,0,.05); }
+  .family .pick.on { background: rgba(0,0,0,.09); }
+  .family .pick canvas { display: block; filter: drop-shadow(0 5px 11px rgba(0,0,0,.15)); }
+  .family .pick .name { font: 11px -apple-system, system-ui, sans-serif; color: #777; }
+
+  /* ── Tuning panel ───────────────────────────────────────────── */
+
+  .panel {
+    width: 264px;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    background: rgba(255,255,255,.75);
+    backdrop-filter: blur(14px);
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.12);
+    font-family: -apple-system, system-ui, sans-serif;
+    flex: none;
+  }
+  .panel h2 { font-size: 14px; font-weight: 700; color: #555; margin-bottom: 4px; }
+  .panel h3 {
+    font-size: 11px; font-weight: 700; color: #999;
+    text-transform: uppercase; letter-spacing: .6px; margin: 18px 0 2px;
+  }
+  .panel label { display: block; font-size: 12px; color: #777; margin: 11px 0 4px; }
+  .panel label output { float: right; color: #333; font-variant-numeric: tabular-nums; }
+  .panel input[type=range] { width: 100%; }
+  .panel input[type=range]:disabled { opacity: .45; }
+  .panel label.locked { opacity: .55; }
+  .panel label.locked output::after { content: " auto"; color: #aaa; font-size: 10px; }
+  .panel .row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 13px; gap: 8px; font-size: 12px; color: #777;
+  }
+  .panel .row b { color: #555; }
+  .panel .seg { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+  .panel .seg button {
+    flex: 1 1 auto;
+    font: 600 11px -apple-system, system-ui, sans-serif;
+    padding: 6px 8px; border: 0; border-radius: 8px;
+    background: rgba(0,0,0,.06); color: #555; cursor: pointer;
+  }
+  .panel .seg button.on { background: #333; color: #fff; }
+  .panel .export {
+    width: 100%; margin-top: 16px;
+    font: 700 13px -apple-system, system-ui, sans-serif;
+    padding: 10px; border: 0; border-radius: 12px;
+    background: #333; color: #fff; cursor: pointer;
+  }
+  .panel .hint {
+    margin-top: 14px; padding-top: 12px;
+    border-top: 1px solid rgba(0,0,0,.08);
+    font-size: 11px; line-height: 1.5; color: #999;
+  }
+  .panel .hint b { color: #666; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="board">
+    <div class="heroRow">
+      <div class="card hero">
+        <canvas id="heroCanvas"></canvas>
+        <div class="cap">1024 master, iOS mask</div>
+      </div>
+      <div class="home light" id="homeLight"></div>
+      <div class="home dark" id="homeDark"></div>
+    </div>
+
+    <div class="card">
+      <div class="ramp" id="ramp"></div>
+      <div class="cap" style="margin-top:12px">every size iOS asks for, actual pixels</div>
+    </div>
+
+    <div class="card">
+      <div class="family" id="family"></div>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <h2>App icon</h2>
+    <div class="cap" style="text-align:left;margin-bottom:6px">one swatch of sky, in a real frame</div>
+
+    <h3>Material</h3>
+    <div class="seg" id="materialSeg">
+      <button data-v="flat">Flat</button>
+      <button data-v="plastic">Plastic</button>
+      <button data-v="metal">Brushed</button>
+      <button data-v="paper">Paper</button>
+      <button data-v="leather">Leather</button>
+      <button data-v="glass">Glass</button>
+    </div>
+    <label>Grain <output id="oGrain">0.55</output></label>
+    <input type="range" id="iGrain" min="0" max="1.5" step="0.05" value="0.55">
+    <label>Light shaping <output id="oShade">0.80</output></label>
+    <input type="range" id="iShade" min="0" max="1.5" step="0.05" value="0.8">
+
+    <h3>Panel</h3>
+    <div class="seg" id="frameSeg">
+      <button data-v="canvas">Canvas</button>
+      <button data-v="white">White</button>
+      <button data-v="black">Black</button>
+      <button data-v="tint">Tinted</button>
+      <button data-v="deep">Deep</button>
+      <button data-v="tan">Tan</button>
+    </div>
+    <label>Panel width <output id="oInset">7 %</output></label>
+    <input type="range" id="iInset" min="0" max="26" step="0.5" value="7">
+
+    <h3>Window</h3>
+    <div class="seg" id="depthSeg">
+      <button data-v="flat">Flat</button>
+      <button data-v="well">Well</button>
+      <button data-v="plug">Plug</button>
+      <button data-v="glazed">Glazed</button>
+    </div>
+    <label>Wall thickness <output id="oWall">9 %</output></label>
+    <input type="range" id="iWall" min="0" max="22" step="0.5" value="9">
+    <label>Opening roundness <output id="oRound">0.62</output></label>
+    <input type="range" id="iRound" min="0" max="1" step="0.02" value="0.62">
+    <label>Light angle <output id="oLight">96°</output></label>
+    <input type="range" id="iLight" min="0" max="360" step="2" value="96">
+    <label>Look off-axis <output id="oPar">0.42</output></label>
+    <input type="range" id="iPar" min="0" max="1" step="0.02" value="0.42">
+    <label>Wall shading <output id="oDepth">0.85</output></label>
+    <input type="range" id="iDepth" min="0" max="1.5" step="0.05" value="0.85">
+    <label>Edge highlight <output id="oRim">0.45</output></label>
+    <input type="range" id="iRim" min="0" max="1" step="0.05" value="0.45">
+
+    <h3>Overlays</h3>
+    <label>Gloss (the old iOS shine) <output id="oGloss">0.00</output></label>
+    <input type="range" id="iGloss" min="0" max="1" step="0.05" value="0">
+    <label>Vignette <output id="oVig">0.25</output></label>
+    <input type="range" id="iVig" min="0" max="1" step="0.05" value="0.25">
+
+    <h3>Corner</h3>
+    <div class="row">
+      <span><b>Concentric with the icon mask</b></span>
+      <input type="checkbox" id="iConcentric" checked>
+    </div>
+    <div class="row">
+      <span>Apple grid over the hero</span>
+      <input type="checkbox" id="iGrid">
+    </div>
+    <label class="auto">Corner radius <output id="oRadius">13.6 % of w</output></label>
+    <input type="range" id="iRadius" min="0" max="50" step="0.5" value="14">
+    <label class="auto">Corner smoothing <output id="oSmooth">60 %</output></label>
+    <input type="range" id="iSmooth" min="0" max="1" step="0.05" value="0.6">
+
+    <h3>Gradient</h3>
+    <label>Angle <output id="oAngle">0°</output></label>
+    <input type="range" id="iAngle" min="-45" max="45" step="1" value="0">
+    <label>Zoom into sky <output id="oZoom">1.00×</output></label>
+    <input type="range" id="iZoom" min="1" max="2.5" step="0.05" value="1">
+
+    <button class="export" id="export">Download 1024 PNG</button>
+
+    <div class="hint">
+      At inset <b>0</b> the sky fills the icon itself: you are zoomed all
+      the way into the card, so its corner is the icon's corner — the real
+      Apple shape, 22.37 % radius at 60 % smoothing, an arc with Béziers
+      easing into each edge. <b>Material</b> and <b>depth</b> then shade
+      that shape directly. Pull the inset up and a frame appears behind,
+      with the swatch corner staying concentric. Texture scales with the
+      icon, so the ramp shows where it stops reading.
+    </div>
+  </aside>
+</div>
+
+<script>
+/* ── Palettes — verbatim from Sky/Models/SkyGradient.swift ─────── */
+const PALETTES = [
+  { name: 'dusk',   stops: [[0x8D909E,0],[0xB69F99,.485],[0xC8A68F,.680],[0xD4AC77,.838],[0xDE956A,1]] },
+  { name: 'ember',  stops: [[0x888FA6,0],[0x9A7A90,.28],[0xC05744,.52],[0xD63C1F,.72],[0xF27615,1]] },
+  { name: 'dawn',   stops: [[0xA6CADF,.065],[0xA7CDE0,.200],[0xBEB7B1,.537],[0xDA9096,.761],[0xFF9881,.891],[0xEFB291,.999]] },
+  { name: 'night',  stops: [[0x03113A,0],[0x293EA5,.389],[0x5457E1,.659],[0x9380F9,.861],[0xDE8DED,.963]] },
+  { name: 'sunset', stops: [[0xA6CADF,.065],[0xA7CDE0,.204],[0xDA9096,.748],[0xFF9881,.891],[0xEFB291,.999]] },
+];
+
+const P = {
+  palette: 3,          // night — most contrast against the panel
+  material: 'plastic',
+  grain: 0.55,
+  shade: 0.8,
+  frame: 'canvas',
+
+  // The window. Panel width puts the opening on the grid's first ring;
+  // wall is how deep the well runs before it reaches the sky.
+  inset: 7,            // panel width, % of icon
+  wall: 9,             // wall thickness, % of icon
+  roundness: 0.62,     // 0 = concentric with the icon corner, 1 = fully round
+  lightAngle: 96,      // degrees; the direction light travels, 90 = downward
+  parallax: 0.42,      // how far off-axis you look into the well
+  depth: 'well',
+  depthAmt: 0.85,
+  rim: 0.45,
+
+  gloss: 0,            // the old iOS shine, off by default
+  vignette: 0.25,
+  concentric: true,
+  radius: 14,          // manual override
+  smooth: 0.6,         // manual override; 0.6 is Apple's (APPLE_SMOOTHING)
+  angle: 0,
+  zoom: 1,
+  grid: false,         // Apple's template grid over the hero
+};
+/* ── Color helpers ─────────────────────────────────────────────── */
+const rgb = h => [(h >> 16) & 255, (h >> 8) & 255, h & 255];
+const css = c => `rgb(${c[0]|0},${c[1]|0},${c[2]|0})`;
+const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+function sampleStops(stops, t) {
+  if (t <= stops[0][1]) return rgb(stops[0][0]);
+  for (let i = 1; i < stops.length; i++) {
+    if (t <= stops[i][1]) {
+      const [h0, l0] = stops[i - 1], [h1, l1] = stops[i];
+      return mix(rgb(h0), rgb(h1), l1 === l0 ? 0 : (t - l0) / (l1 - l0));
+    }
+  }
+  return rgb(stops[stops.length - 1][0]);
+}
+/// Even samples, so a long band weighs more than a short one.
+function average(stops) {
+  let acc = [0, 0, 0];
+  for (let i = 0; i <= 20; i++) acc = acc.map((v, k) => v + sampleStops(stops, i / 20)[k]);
+  return acc.map(v => v / 21);
+}
+function frameColor(pal) {
+  switch (P.frame) {
+    case 'canvas': return [0xEE, 0xEE, 0xEE];
+    case 'white':  return [255, 255, 255];
+    case 'black':  return [0x14, 0x14, 0x17];
+    case 'tan':    return [0xB8, 0x92, 0x6A];
+    case 'tint':   return mix(average(pal.stops), [255, 255, 255], 0.72);
+    case 'deep':   return mix(average(pal.stops), [0, 0, 0], 0.72);
+  }
+}
+
+/* ── Geometry ──────────────────────────────────────────────────── */
+
+// Apple's icon shape. Not a superellipse and not a rounded rect: each
+// corner is an arc with a Bézier easing into the straight edge at both
+// ends, so curvature ramps up instead of switching on. The iOS app icon is
+// this curve with a 22.37 % radius at 60 % smoothing.
+const MASK_R = 0.2237, APPLE_SMOOTHING = 0.6;
+const rad = deg => deg * Math.PI / 180;
+
+/// The corner's construction, after Figma's squircle (the same shape Apple
+/// draws). `smoothing` is how much of the corner is handed from the arc to
+/// the easing Béziers: 0 is a plain circular corner, 0.6 is Apple's, 1 has
+/// no arc left at all. `budget` caps how far the curve may run along an
+/// edge — half the shorter side, or corners from facing sides would overlap.
+function cornerParams(radius, smoothing, budget) {
+  radius = Math.min(radius, budget / (1 + smoothing));
+  const p = (1 + smoothing) * radius;
+
+  const arcMeasure = 90 * (1 - smoothing);
+  const arcSection = Math.sin(rad(arcMeasure / 2)) * radius * Math.SQRT2;
+  const alpha = (90 - arcMeasure) / 2;
+  const p3ToP4 = radius * Math.tan(rad(alpha / 2));
+  const beta = 45 * smoothing;
+  const c = p3ToP4 * Math.cos(rad(beta));
+  const d = c * Math.tan(rad(beta));
+  const b = (p - arcSection - c - d) / 3;
+  const a = 2 * b;
+  return { radius, a, b, c, d, p, arcSection };
+}
+
+/// One uniform corner on all four sides, as an SVG path — Path2D parses it,
+/// arcs and all, which keeps the arc exact instead of polygonising it.
+function squircleSVG(w, h, radius, smoothing) {
+  if (radius <= 0) return `M 0 0 H ${w} V ${h} H 0 Z`;
+  const { radius: r, a, b, c, d, p, arcSection: L } = cornerParams(radius, smoothing, Math.min(w, h) / 2);
+  const arc = (dx, dy) => `a ${r} ${r} 0 0 1 ${dx} ${dy}`;
+  return [
+    `M ${w - p} 0`,
+    `c ${a} 0 ${a + b} 0 ${a + b + c} ${d}`, arc(L, L), `c ${d} ${c} ${d} ${b + c} ${d} ${a + b + c}`,
+    `L ${w} ${h - p}`,
+    `c 0 ${a} 0 ${a + b} ${-d} ${a + b + c}`, arc(-L, L), `c ${-c} ${d} ${-(b + c)} ${d} ${-(a + b + c)} ${d}`,
+    `L ${p} ${h}`,
+    `c ${-a} 0 ${-(a + b)} 0 ${-(a + b + c)} ${-d}`, arc(-L, -L), `c ${-d} ${-c} ${-d} ${-(b + c)} ${-d} ${-(a + b + c)}`,
+    `L 0 ${p}`,
+    `c 0 ${-a} 0 ${-(a + b)} ${d} ${-(a + b + c)}`, arc(L, -L), `c ${c} ${-d} ${b + c} ${-d} ${a + b + c} ${-d}`,
+    'Z',
+  ].join(' ');
+}
+
+/// The shape as a Path2D at (x, y). Reusable and composable — building it
+/// straight on the context would reset the current path.
+function squirclePath(x, y, w, h, r, smoothing) {
+  const path = new Path2D();
+  path.addPath(new Path2D(squircleSVG(w, h, r, smoothing)), new DOMMatrix([1, 0, 0, 1, x, y]));
+  return path;
+}
+
+/// Concentric corner: two curves are concentric when the inner radius is
+/// the outer radius minus the gap between them, and both run the same
+/// curve. `layout()` applies this to the opening, so the aperture gives
+/// back exactly the panel width before `roundness` opens it up further.
+
+/// Shadow cast *into* a shape: clip to the inside, then fill everything
+/// outside it with a blurred shadow, so only the dark spilling over the
+/// edge lands. `dy` puts the light source overhead.
+function innerShadow(ctx, path, blur, dy, color) {
+  const hole = new Path2D();
+  hole.rect(-blur * 4, -blur * 4, ctx.canvas.width + blur * 8, ctx.canvas.height + blur * 8);
+  hole.addPath(path);
+  ctx.save();
+  ctx.clip(path);
+  ctx.shadowColor = color;
+  ctx.shadowBlur = blur;
+  ctx.shadowOffsetY = dy;
+  ctx.fillStyle = '#000';
+  ctx.fill(hole, 'evenodd');
+  ctx.restore();
+}
+
+/* ── Materials ─────────────────────────────────────────────────── */
+
+// Grayscale texture tiles, generated once and composited in `overlay`,
+// where mid-gray is a no-op. `span` is the tile's size as a share of the
+// icon, so texture scales with the artwork instead of pinning to pixels.
+const MATERIALS = {
+  flat:    { span: 0.3,  noise: null },
+  plastic: { span: 0.22, noise: 'fine',   amount: 0.35 },
+  metal:   { span: 1.0,  noise: 'brush',  amount: 0.75 },
+  paper:   { span: 0.16, noise: 'fine',   amount: 0.9 },
+  leather: { span: 0.42, noise: 'mottle', amount: 1.0 },
+  glass:   { span: 0.3,  noise: 'fine',   amount: 0.12 },
+};
+
+const TEX_CACHE = new Map();
+function textureTile(kind) {
+  if (TEX_CACHE.has(kind)) return TEX_CACHE.get(kind);
+  const n = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = n;
+  const x = c.getContext('2d');
+
+  if (kind === 'mottle') {
+    // Low-res blobs, smoothly upscaled — leather grain.
+    const small = document.createElement('canvas');
+    small.width = small.height = 24;
+    const sx = small.getContext('2d');
+    const img = sx.createImageData(24, 24);
+    for (let i = 0; i < 24 * 24; i++) {
+      const v = 128 + (Math.random() - 0.5) * 108;
+      img.data.set([v, v, v, 255], i * 4);
+    }
+    sx.putImageData(img, 0, 0);
+    x.imageSmoothingEnabled = true;
+    x.drawImage(small, 0, 0, n, n);
+    // Fine pores on top of the blobs.
+    const fine = x.getImageData(0, 0, n, n);
+    for (let i = 0; i < n * n; i++) {
+      const d = (Math.random() - 0.5) * 26;
+      fine.data[i * 4] = clamp(fine.data[i * 4] + d, 0, 255);
+      fine.data[i * 4 + 1] = fine.data[i * 4];
+      fine.data[i * 4 + 2] = fine.data[i * 4];
+    }
+    x.putImageData(fine, 0, 0);
+  } else {
+    const img = x.createImageData(n, n);
+    // Brushed metal: one brightness per row, streaked across — plus a
+    // little per-pixel jitter so the streaks aren't perfectly clean.
+    const rows = kind === 'brush' ? Array.from({ length: n }, () => (Math.random() - 0.5) * 44) : null;
+    for (let y = 0; y < n; y++) {
+      for (let px = 0; px < n; px++) {
+        const d = rows ? rows[y] + (Math.random() - 0.5) * 10
+                       : (Math.random() - 0.5) * 34;
+        const v = clamp(128 + d, 0, 255);
+        img.data.set([v, v, v, 255], (y * n + px) * 4);
+      }
+    }
+    x.putImageData(img, 0, 0);
+  }
+  TEX_CACHE.set(kind, c);
+  return c;
+}
+
+/// The broad light shaping that sells the material before any grain does:
+/// where the highlight sits, how fast it falls off.
+function materialLighting(ctx, s) {
+  const k = P.shade;
+  if (k <= 0) return;
+  const paint = g => { ctx.fillStyle = g; ctx.fillRect(0, 0, s, s); };
+  const lin = (x0, y0, x1, y1, stops) => {
+    const g = ctx.createLinearGradient(x0, y0, x1, y1);
+    for (const [at, c] of stops) g.addColorStop(at, c);
+    return g;
+  };
+  switch (P.material) {
+    case 'plastic':   // soft dome, lit from above
+      paint(lin(0, 0, 0, s, [[0, `rgba(255,255,255,${0.30 * k})`],
+                             [0.5, 'rgba(255,255,255,0)'],
+                             [1, `rgba(0,0,0,${0.18 * k})`]]));
+      break;
+    case 'metal':     // anisotropic sheen: bright, dark band, bright again
+      paint(lin(0, 0, 0, s, [[0, `rgba(255,255,255,${0.34 * k})`],
+                             [0.34, `rgba(0,0,0,${0.10 * k})`],
+                             [0.62, `rgba(255,255,255,${0.16 * k})`],
+                             [1, `rgba(0,0,0,${0.24 * k})`]]));
+      break;
+    case 'paper':     // almost flat, just a lift at the top edge
+      paint(lin(0, 0, 0, s, [[0, `rgba(255,255,255,${0.20 * k})`],
+                             [0.6, 'rgba(255,255,255,0)'],
+                             [1, `rgba(0,0,0,${0.10 * k})`]]));
+      break;
+    case 'leather':   // broad, low sheen and a heavy falloff
+      paint(lin(0, 0, 0, s, [[0, `rgba(255,255,255,${0.16 * k})`],
+                             [0.45, 'rgba(255,255,255,0)'],
+                             [1, `rgba(0,0,0,${0.34 * k})`]]));
+      break;
+    case 'glass':     // cool body plus a hard diagonal band
+      paint(lin(0, 0, 0, s, [[0, `rgba(226,240,255,${0.26 * k})`],
+                             [1, `rgba(0,0,0,${0.20 * k})`]]));
+      paint(lin(0, s, s, 0, [[0.42, 'rgba(255,255,255,0)'],
+                             [0.5, `rgba(255,255,255,${0.16 * k})`],
+                             [0.58, 'rgba(255,255,255,0)']]));
+      break;
+  }
+}
+
+function materialGrain(ctx, s) {
+  const m = MATERIALS[P.material];
+  if (!m.noise || P.grain <= 0) return;
+  const tile = textureTile(m.noise);
+  const span = s * m.span;
+  // Below a couple of pixels a tile is just noise on noise — drop it, the
+  // way real texture disappears at small sizes.
+  if (span < 3) return;
+  const pat = ctx.createPattern(tile, 'repeat');
+  pat.setTransform(new DOMMatrix([span / tile.width, 0, 0, span / tile.height, 0, 0]));
+  ctx.save();
+  ctx.globalCompositeOperation = 'overlay';
+  ctx.globalAlpha = clamp(P.grain * m.amount, 0, 1);
+  ctx.fillStyle = pat;
+  ctx.fillRect(0, 0, s, s);
+  ctx.restore();
+}
+
+/// A rounded-rect frame in the icon's own curve, described by numbers so
+/// the well's walls can be interpolated between two of them.
+function boxPath(b) { return squirclePath(b.x, b.y, b.w, b.h, b.r, b.k); }
+function lerpBox(a, b, t) {
+  const L = (p, q) => p + (q - p) * t;
+  return { x: L(a.x, b.x), y: L(a.y, b.y), w: L(a.w, b.w), h: L(a.h, b.h),
+           r: L(a.r, b.r), k: L(a.k, b.k) };
+}
+
+/// Shading around the opening, as a function of which way the wall faces —
+/// not four flat panels meeting at mitres. At a point on the perimeter the
+/// wall's inward normal is (−cos φ, −sin φ), so how much light it catches
+/// is cos(φ − θ) for a light travelling along θ. That is a conic gradient
+/// about the centre, which is why the corners come out round and seamless.
+/// `flip` turns the well inside out for a plug standing proud.
+function wallLight(ctx, cx, cy, theta, flip) {
+  const g = ctx.createConicGradient(0, cx, cy);
+  const steps = 32;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    let lam = Math.cos(t * Math.PI * 2 - theta);
+    if (flip) lam = -lam;
+    g.addColorStop(t, lam >= 0
+      ? `rgba(255,255,255,${(lam * 0.85).toFixed(3)})`
+      : `rgba(0,0,0,${(-lam * 0.95).toFixed(3)})`);
+  }
+  return g;
+}
+
+/// The well itself: concentric rings stepping from the opening down to the
+/// glass, each one shaded by the same directional light and darkened a
+/// little more than the last. The rings do the work a normal map would —
+/// depth reads because the wall gets dimmer and the occlusion builds as it
+/// goes in, and because the glass is offset, so one side of the tunnel is
+/// wider than the other exactly the way a real recess looks off-axis.
+// Enough rings that the alpha steps blur into a continuous wall; below
+// about 16 the contours show up as machining lines.
+const WELL_RINGS = 22;
+function drawWell(ctx, s, aperture, glass, theta, flip, amt) {
+  if (amt <= 0) return;
+  const dirG = wallLight(ctx, s / 2, s / 2, theta, flip);
+
+  for (let i = 0; i < WELL_RINGS; i++) {
+    const t0 = i / WELL_RINGS, t1 = (i + 1) / WELL_RINGS;
+    const ring = new Path2D();
+    ring.addPath(boxPath(lerpBox(aperture, glass, t0)));
+    ring.addPath(boxPath(lerpBox(aperture, glass, Math.min(1, t1 + 0.004))));
+
+    ctx.save();
+    ctx.clip(ring, 'evenodd');
+    // Directional: the lit side stays lit all the way down, just dimmer.
+    ctx.globalAlpha = clamp(amt * (0.34 + 0.66 * (1 - t0)), 0, 1);
+    ctx.fillStyle = dirG;
+    ctx.fillRect(0, 0, s, s);
+    // Occlusion: less of the sky reaches the wall the deeper it sits.
+    ctx.globalAlpha = clamp(amt * 0.40 * t1, 0, 1);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, s, s);
+    ctx.restore();
+  }
+
+  // The lip where the panel turns into the wall, and the sill where the
+  // wall meets the glass: the two hard edges that tell you it is cut.
+  ctx.save();
+  ctx.globalAlpha = clamp(amt, 0, 1);
+  ctx.lineWidth = Math.max(0.6, s * 0.0045);
+  ctx.strokeStyle = wallLight(ctx, s / 2, s / 2, theta + Math.PI, flip);
+  ctx.stroke(boxPath(aperture));
+  ctx.globalAlpha = clamp(amt * 0.55, 0, 1);
+  ctx.strokeStyle = wallLight(ctx, s / 2, s / 2, theta, flip);
+  ctx.stroke(boxPath(glass));
+  ctx.restore();
+}
+
+/* ── The icon ──────────────────────────────────────────────────── */
+
+/// The three shapes the icon is built from, as plain numbers.
+///   mask     the icon itself, Apple's squircle
+///   aperture where the panel stops and the wall turns inward
+///   glass    the bottom of the well, holding the sky
+/// The glass is shifted along the light, so you look slightly across the
+/// opening instead of straight down it — one wall comes out wider than the
+/// one facing it, which is what makes a recess read as a recess.
+function layout(s) {
+  const panel = s * P.inset / 100;
+  const wall = s * P.wall / 100;
+
+  const aw = s - panel * 2;
+  // Concentric with the icon's own corner, then opened up toward a full
+  // round by `roundness` — an aircraft window is nearly all corner.
+  const concentric = Math.max(0, s * MASK_R - panel);
+  const base = P.concentric ? concentric : aw * P.radius / 100;
+  const k = P.concentric ? APPLE_SMOOTHING : P.smooth;
+  const ar = clamp(base + (aw / 2 - base) * P.roundness, 0, aw / 2);
+  const aperture = { x: panel, y: panel, w: aw, h: aw, r: ar, k };
+
+  const theta = rad(P.lightAngle);
+  const shift = wall * P.parallax;
+  const gw = aw - wall * 2;
+  const glass = {
+    x: panel + wall + Math.cos(theta) * shift,
+    y: panel + wall + Math.sin(theta) * shift,
+    w: gw, h: gw,
+    r: Math.max(0, ar - wall),
+    k,
+  };
+  return { panel, wall, aperture, glass, theta };
+}
+
+function drawIcon(ctx, s, pal, masked) {
+  ctx.save();
+  ctx.clearRect(0, 0, s, s);
+  const mask = squirclePath(0, 0, s, s, s * MASK_R, APPLE_SMOOTHING);
+  if (masked) ctx.clip(mask);
+
+  const { panel, wall, aperture, glass, theta } = layout(s);
+  const aperturePath = boxPath(aperture);
+  const glassPath = boxPath(glass);
+  const plug = P.depth === 'plug';
+  const d = P.depthAmt;
+
+  // 1. The panel the window is cut into.
+  ctx.fillStyle = css(frameColor(pal));
+  ctx.fillRect(0, 0, s, s);
+
+  // 2. The sky, at the bottom of the well.
+  ctx.save();
+  ctx.clip(glassPath);
+  const a = P.angle * Math.PI / 180;
+  const dx = Math.sin(a), dy = Math.cos(a);
+  const L = (Math.abs(dx) * glass.w + Math.abs(dy) * glass.h) / 2 * P.zoom;
+  const cx = glass.x + glass.w / 2, cy = glass.y + glass.h / 2;
+  const g = ctx.createLinearGradient(cx - dx * L, cy - dy * L, cx + dx * L, cy + dy * L);
+  for (const [hex, l] of pal.stops) g.addColorStop(clamp(l, 0, 1), css(rgb(hex)));
+  ctx.fillStyle = g;
+  ctx.fillRect(glass.x - s, glass.y - s, glass.w + 2 * s, glass.h + 2 * s);
+  ctx.restore();
+
+  // 3. The material, over the whole object — one surface catching one
+  // light, rather than a textured panel holding an untextured picture.
+  materialLighting(ctx, s);
+  materialGrain(ctx, s);
+
+  // 4. The wall between panel and glass.
+  if (P.depth !== 'flat' && wall > 0) {
+    drawWell(ctx, s, aperture, glass, theta, plug, d);
+
+    // What the wall throws onto the sky just inside the sill: the well is
+    // deep, so its own edge shades the top of the picture.
+    if (!plug) {
+      innerShadow(ctx, glassPath, s * 0.05 * d, 0, `rgba(0,0,0,${clamp(0.5 * d, 0, 0.8)})`);
+    }
+  }
+
+  // 5. Glass, if the window is glazed: a pane curving over the sky.
+  if (P.depth === 'glazed' && d > 0) {
+    ctx.save();
+    ctx.clip(glassPath);
+    const pane = ctx.createLinearGradient(
+      glass.x + Math.cos(theta) * glass.w, glass.y + Math.sin(theta) * glass.h,
+      glass.x + glass.w - Math.cos(theta) * glass.w, glass.y + glass.h - Math.sin(theta) * glass.h);
+    pane.addColorStop(0, `rgba(255,255,255,${0.34 * d})`);
+    pane.addColorStop(0.30, `rgba(255,255,255,${0.04 * d})`);
+    pane.addColorStop(0.78, 'rgba(255,255,255,0)');
+    pane.addColorStop(1, `rgba(255,255,255,${0.16 * d})`);
+    ctx.fillStyle = pane;
+    ctx.fillRect(0, 0, s, s);
+    ctx.restore();
+  }
+
+  // 6. The panel's own outer lip, so the icon edge is an edge too.
+  if (P.rim > 0) {
+    ctx.save();
+    ctx.clip(mask);
+    ctx.globalAlpha = clamp(P.rim, 0, 1);
+    ctx.lineWidth = Math.max(0.6, s * 0.0055);
+    ctx.strokeStyle = wallLight(ctx, s / 2, s / 2, theta + Math.PI, false);
+    ctx.stroke(mask);
+    ctx.restore();
+  }
+
+  // 7. Overlays across the whole face.
+  if (P.gloss > 0) {
+    // The iOS 6 shine: a dome of light bounded by an upward-curving arc.
+    ctx.save();
+    if (masked) ctx.clip(mask);
+    const shine = ctx.createLinearGradient(0, 0, 0, s * 0.55);
+    shine.addColorStop(0, `rgba(255,255,255,${0.40 * P.gloss})`);
+    shine.addColorStop(1, `rgba(255,255,255,${0.05 * P.gloss})`);
+    ctx.fillStyle = shine;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(s, 0);
+    ctx.lineTo(s, s * 0.40);
+    ctx.quadraticCurveTo(s * 0.5, s * 0.66, 0, s * 0.40);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  if (P.vignette > 0) {
+    ctx.save();
+    if (masked) ctx.clip(mask);
+    const v = ctx.createRadialGradient(s / 2, s / 2, s * 0.30, s / 2, s / 2, s * 0.78);
+    v.addColorStop(0, 'rgba(0,0,0,0)');
+    v.addColorStop(1, `rgba(0,0,0,${0.42 * P.vignette})`);
+    ctx.fillStyle = v;
+    ctx.fillRect(0, 0, s, s);
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+/// Apple's icon design grid, laid over the hero the way their template
+/// sheet does it: an eighth-of-the-icon dotted mesh, the three concentric
+/// circles, and the corner diagonals. Nothing here is exported — it is a
+/// ruler for checking that the swatch sits on the same centre the system
+/// shapes do.
+function drawGrid(ctx, s) {
+  ctx.save();
+  ctx.lineWidth = Math.max(0.5, s * 0.0035);
+  const ink = a => `rgba(120,120,125,${a})`;
+
+  // Dotted mesh on eighths.
+  ctx.setLineDash([s * 0.008, s * 0.014]);
+  ctx.strokeStyle = ink(0.5);
+  ctx.beginPath();
+  for (let i = 1; i < 8; i++) {
+    const t = (s / 8) * i;
+    ctx.moveTo(t, 0); ctx.lineTo(t, s);
+    ctx.moveTo(0, t); ctx.lineTo(s, t);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // The three circles and the diagonals, solid.
+  ctx.strokeStyle = ink(0.75);
+  ctx.beginPath();
+  for (const r of [0.43, 0.275, 0.115]) ctx.arc(s / 2, s / 2, s * r, 0, Math.PI * 2);
+  ctx.moveTo(s * 0.04, s * 0.04); ctx.lineTo(s * 0.96, s * 0.96);
+  ctx.moveTo(s * 0.96, s * 0.04); ctx.lineTo(s * 0.04, s * 0.96);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/* ── Canvases ──────────────────────────────────────────────────── */
+
+const dpr = Math.max(1, window.devicePixelRatio || 1);
+function paint(canvas, cssSize, pal, masked = true, grid = false) {
+  canvas.width = canvas.height = Math.round(cssSize * dpr);
+  canvas.style.width = canvas.style.height = cssSize + 'px';
+  const ctx = canvas.getContext('2d');
+  drawIcon(ctx, canvas.width, pal, masked);
+  if (grid) drawGrid(ctx, canvas.width);
+}
+
+const heroCanvas = document.getElementById('heroCanvas');
+
+// Scale ramp — the sizes iOS actually renders, biggest to smallest.
+const RAMP = [
+  { px: 180, cap: '180 · home @3x' },
+  { px: 120, cap: '120 · home @2x' },
+  { px: 87,  cap: '87 · settings' },
+  { px: 80,  cap: '80 · spotlight' },
+  { px: 60,  cap: '60 · notif' },
+  { px: 40,  cap: '40' },
+  { px: 29,  cap: '29' },
+];
+const rampEl = document.getElementById('ramp');
+const rampCanvases = RAMP.map(({ px, cap }) => {
+  const step = document.createElement('div');
+  step.className = 'step';
+  const c = document.createElement('canvas');
+  const l = document.createElement('div');
+  l.className = 'cap';
+  l.textContent = cap;
+  step.append(c, l);
+  rampEl.appendChild(step);
+  return { canvas: c, px };
+});
+
+// Home screens: our icon among neutral placeholders.
+const NEIGHBORS = ['Photos', 'Weather', 'Music', 'Maps', 'Notes', 'Clock', 'Mail'];
+function buildHome(el) {
+  const grid = document.createElement('div');
+  grid.className = 'iconGrid';
+  for (const name of [...NEIGHBORS.slice(0, 3), 'Sky', ...NEIGHBORS.slice(3)]) {
+    const app = document.createElement('div');
+    app.className = 'app';
+    if (name === 'Sky') {
+      const c = document.createElement('canvas');
+      c.dataset.sky = '1';
+      app.appendChild(c);
+    } else {
+      const t = document.createElement('div');
+      t.className = 'tile';
+      app.appendChild(t);
+    }
+    const nm = document.createElement('div');
+    nm.className = 'name';
+    nm.textContent = name;
+    app.append(nm);
+    grid.appendChild(app);
+  }
+  el.appendChild(grid);
+}
+buildHome(document.getElementById('homeLight'));
+buildHome(document.getElementById('homeDark'));
+
+// Family strip: one per palette, click to make it the hero.
+const familyEl = document.getElementById('family');
+const familyCanvases = PALETTES.map((pal, i) => {
+  const pick = document.createElement('div');
+  pick.className = 'pick';
+  const c = document.createElement('canvas');
+  const nm = document.createElement('div');
+  nm.className = 'name';
+  nm.textContent = pal.name;
+  pick.append(c, nm);
+  pick.addEventListener('click', () => { P.palette = i; render(); });
+  familyEl.appendChild(pick);
+  return { pick, canvas: c };
+});
+
+function render() {
+  const pal = PALETTES[P.palette];
+  paint(heroCanvas, 224, pal, true, P.grid);
+  rampCanvases.forEach(({ canvas, px }) => paint(canvas, px, pal));
+  document.querySelectorAll('canvas[data-sky]').forEach(c => paint(c, 52, pal));
+  familyCanvases.forEach(({ pick, canvas }, i) => {
+    pick.classList.toggle('on', i === P.palette);
+    paint(canvas, 74, PALETTES[i]);
+  });
+  syncPanel();
+}
+
+/* ── Panel wiring ──────────────────────────────────────────────── */
+
+const $ = id => document.getElementById(id);
+function slider(id, key, out, fmt) {
+  const el = $(id);
+  el.value = P[key];
+  el.addEventListener('input', () => { P[key] = parseFloat(el.value); render(); });
+  return () => { $(out).textContent = fmt(P[key]); };
+}
+const outputs = [
+  slider('iGrain', 'grain', 'oGrain', v => v.toFixed(2)),
+  slider('iShade', 'shade', 'oShade', v => v.toFixed(2)),
+  slider('iInset', 'inset', 'oInset', v => `${v} %`),
+  slider('iWall', 'wall', 'oWall', v => `${v} %`),
+  slider('iRound', 'roundness', 'oRound', v => v.toFixed(2)),
+  slider('iLight', 'lightAngle', 'oLight', v => `${v}°`),
+  slider('iPar', 'parallax', 'oPar', v => v.toFixed(2)),
+  slider('iDepth', 'depthAmt', 'oDepth', v => v.toFixed(2)),
+  slider('iRim', 'rim', 'oRim', v => v.toFixed(2)),
+  slider('iGloss', 'gloss', 'oGloss', v => v.toFixed(2)),
+  slider('iVig', 'vignette', 'oVig', v => v.toFixed(2)),
+  slider('iRadius', 'radius', 'oRadius', () => `${derived().rPct.toFixed(1)} % of w`),
+  slider('iSmooth', 'smooth', 'oSmooth', () => `${Math.round(derived().k * 100)} %`),
+  slider('iAngle', 'angle', 'oAngle', v => `${v}°`),
+  slider('iZoom', 'zoom', 'oZoom', v => `${v.toFixed(2)}×`),
+];
+function segment(id, key) {
+  const seg = $(id);
+  seg.querySelectorAll('button').forEach(b =>
+    b.addEventListener('click', () => { P[key] = b.dataset.v; render(); }));
+  return () => seg.querySelectorAll('button')
+    .forEach(b => b.classList.toggle('on', b.dataset.v === P[key]));
+}
+const segs = [segment('frameSeg', 'frame'), segment('materialSeg', 'material'),
+              segment('depthSeg', 'depth')];
+
+/// What the opening's corner comes out as, on a nominal 100-unit icon, so
+/// the panel can read back the automatic value.
+function derived() {
+  const { aperture } = layout(100);
+  return { rPct: aperture.w ? (aperture.r / aperture.w) * 100 : 0, k: aperture.k };
+}
+
+$('iConcentric').checked = P.concentric;
+$('iConcentric').addEventListener('change', e => { P.concentric = e.target.checked; render(); });
+$('iGrid').checked = P.grid;
+$('iGrid').addEventListener('change', e => { P.grid = e.target.checked; render(); });
+
+function syncPanel() {
+  outputs.forEach(f => f());
+  segs.forEach(f => f());
+  // In automatic mode the two corner sliders are read-outs, not inputs.
+  $('iRadius').disabled = P.concentric;
+  $('iSmooth').disabled = P.concentric;
+  document.querySelectorAll('.panel label.auto')
+    .forEach(l => l.classList.toggle('locked', P.concentric));
+}
+
+// Square, unmasked 1024 — what AppIcon.appiconset wants.
+$('export').addEventListener('click', () => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 1024;
+  drawIcon(c.getContext('2d'), 1024, PALETTES[P.palette], false);
+  const a = document.createElement('a');
+  a.download = `sky-icon-${PALETTES[P.palette].name}-${P.material}-${P.depth}.png`;
+  a.href = c.toDataURL('image/png');
+  a.click();
+});
+
+// Deep links: #night, #leather, #raised… set palette / material / depth.
+for (const h of location.hash.slice(1).split('+')) {
+  const i = PALETTES.findIndex(p => p.name === h);
+  if (i >= 0) P.palette = i;
+  if (h in MATERIALS) P.material = h;
+  if (['flat', 'well', 'plug', 'glazed'].includes(h)) P.depth = h;
+  if (h === 'bleed') { P.inset = 0; P.wall = 0; }
+  if (h === 'grid') P.grid = true;
+
+}
+
+render();
+</script>
+</body>
+</html>
